@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>テストページ</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background-color: #f8f8f8;
+      margin: 20px;
+    }
+    .box {
+      background: white;
+      padding: 20px;
+      border: 1px solid #ccc;
+      width: 500px;
+    }
+    button {
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>テスト用HTMLページ</h1>
+
+  <div class="box">
+    <h2>フォームテスト</h2>
+    <form action="/submit" method="post">
+      <label>ユーザー名: <input type="text" name="username"></label><br>
+      <label>パスワード: <input type="password" name="password"></label><br>
+      <button type="submit">送信</button>
+    </form>
+  </div>
+
+  <div class="box">
+    <h2>リンクと画像</h2>
+    <a href="https://example.com" target="_blank">Exampleサイトへ</a><br><br>
+    <img src="https://via.placeholder.com/150" alt="ダミー画像">
+  </div>
+
+  <div class="box">
+    <h2>JavaScriptテスト</h2>
+    <button onclick="alert('ボタンがクリックされました')">クリックしてみて</button>
+  </div>
+
+  <footer style="margin-top: 30px;">
+    <small>&copy; 2025 テストページ</small>
+  </footer>
+</body>
+</html>
+
