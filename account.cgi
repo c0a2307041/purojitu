@@ -18,7 +18,7 @@ DB_CONFIG = {
     'charset': 'utf8'
 }
 # 今回はログイン機能を省略し、ユーザーID=1の人で固定
-CURRENT_USER_ID = 0
+CURRENT_USER_ID = 1
 
 # --- データベース関連の関数 ---
 
