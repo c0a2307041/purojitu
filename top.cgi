@@ -4,10 +4,21 @@
 import cgi
 import mysql.connector
 import html
+import os
+from http import cookies
+from datetime import datetime
 
 print("Content-Type: text/html; charset=utf-8\n")
 
-# DB接続情報（あなたの環境に合わせて修正）
+# セッションIDをCookieから取得
+session_id = None
+user_id = None
+
+cookie = cookies.SimpleCookie(os.environ.get("HTTP_COOKIE"))
+if "session_id" in cookie:
+    session_id = cookie["session_id"].value
+
+# DB接続情報
 DB_HOST = 'localhost'
 DB_USER = 'user1'
 DB_PASS = 'passwordA1!'
@@ -22,7 +33,37 @@ try:
         charset='utf8'
     )
     cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM items ORDER BY item_id DESC")
+
+    # セッション確認処理
+    if session_id:
+        cursor.execute("""
+            SELECT user_id FROM sessions 
+            WHERE session_id = %s AND expires_at > NOW()
+        """, (session_id,))
+        session = cursor.fetchone()
+        if session:
+            user_id = session["user_id"]
+        else:
+            # セッションが無効ならログインページへリダイレクト
+            print("""
+                <html><head>
+                <meta http-equiv="refresh" content="0;URL=login.html">
+                </head><body></body></html>
+            """)
+            conn.close()
+            exit()
+    else:
+        # セッションIDが存在しない場合もリダイレクト
+        print("""
+            <html><head>
+            <meta http-equiv="refresh" content="0;URL=login.html">
+            </head><body></body></html>
+        """)
+        conn.close()
+        exit()
+
+    # 商品一覧を取得
+    cursor.execute("SELECT * FROM items ORDER BY created_at DESC")
     items = cursor.fetchall()
 
 except mysql.connector.Error as e:
@@ -43,6 +84,14 @@ print("""
             padding: 20px;
         }
         h1 { color: #333; }
+        .nav {
+            margin-bottom: 20px;
+        }
+        .nav a {
+            margin-right: 15px;
+            text-decoration: none;
+            color: #0066cc;
+        }
         .product-list {
             display: flex;
             flex-wrap: wrap;
@@ -72,6 +121,10 @@ print("""
 </head>
 <body>
     <h1>ようこそ！フリマアプリ</h1>
+    <div class="nav">
+        <a href="account.cgi">マイページ</a>
+        <a href="exhibition.cgi">商品を出品する</a>
+    </div>
     <div class="product-list">
     <a href="exhibition.cgi">
 """)
@@ -80,11 +133,11 @@ print("""
 for item in items:
     title = html.escape(item['title'])
     price = item['price']
-#    image_path = html.escape(item['image_path']) or "/images/noimage.png"
+    # image_path = html.escape(item['image_path']) if item['image_path'] else "/images/noimage.png"
 
     print(f"""
         <div class="product-card">
-#            <img src="{image_path}" alt="{title}">
+            <!-- <img src="{image_path}" alt="{title}"> -->
             <div class="product-title">{title}</div>
             <div class="product-price">¥{price}</div>
         </div>
@@ -99,3 +152,4 @@ print("""
 
 cursor.close()
 conn.close()
+
