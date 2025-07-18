@@ -5,11 +5,11 @@ import cgi
 import mysql.connector
 import html
 
-print("Content-Type: text/html\n")
+print("Content-Type: text/html; charset=utf-8\n")
 
 # DB接続情報（あなたの環境に合わせて修正）
 DB_HOST = 'localhost'
-DB_USER = 'user'
+DB_USER = 'user1'
 DB_PASS = 'passwordA1!'
 DB_NAME = 'Free'
 
@@ -22,7 +22,7 @@ try:
         charset='utf8'
     )
     cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM items ORDER BY created_at DESC")
+    cursor.execute("SELECT * FROM items ORDER BY item_id DESC")
     items = cursor.fetchall()
 
 except mysql.connector.Error as e:
@@ -73,6 +73,7 @@ print("""
 <body>
     <h1>ようこそ！フリマアプリ</h1>
     <div class="product-list">
+    <a href="exhibition.cgi">
 """)
 
 # 商品一覧表示
