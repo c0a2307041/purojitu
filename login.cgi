@@ -28,8 +28,6 @@ cursor = connection.cursor()
 cursor.execute(f"SELECT user_id FROM users WHERE email='{email}' AND password='{password}'")
 row = cursor.fetchone()
 
-# ✅ 文字化け対策：Content-Type ヘッダーに charset を明示
-print("Content-Type: text/html; charset=utf-8")
 if row:
     user_id = row[0]
 
@@ -47,8 +45,9 @@ if row:
     """)
     connection.commit()
 
-    # Cookie にセッションIDを保存
+    # Cookie にセッションIDとユーザーIDを保存
     print(f"Set-Cookie: session_id={session_id}; Path=/; HttpOnly")
+    print(f"Set-Cookie: user_id={user_id}; Path=/; HttpOnly")
     print()
     print(f"""
     <html><head>
