@@ -21,9 +21,9 @@ cursor = connection.cursor()
 cursor.execute(f"SELECT user_id FROM users WHERE email='{email}' AND password='{password}'")
 row = cursor.fetchone()
 
+
 # ✅ 文字化け対策：Content-Type ヘッダーに charset を明示
 print("Content-Type: text/html; charset=utf-8")
-
 if row:
     user_id = row[0]
     session_id = str(user_id)
