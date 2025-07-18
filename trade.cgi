@@ -37,11 +37,11 @@ def update_transaction_status(cursor, purchase_id, new_status):
     cursor.execute(query, (new_status, purchase_id))
 
 def post_review(cursor, item_id, reviewer_id, reviewee_id, content):
-    query = "INSERT INTO reviews (item_id, reviewer_id, reviewee_id, content) VALUES (%s, %s, %s, %s)"
+    query = "INSERT INTO user_reviews (item_id, reviewer_id, reviewee_id, content) VALUES (%s, %s, %s, %s)"
     cursor.execute(query, (item_id, reviewer_id, reviewee_id, content))
 
 def get_reviews_for_trade(cursor, item_id):
-    query = "SELECT reviewer_id, reviewee_id FROM reviews WHERE item_id = %s"
+    query = "SELECT reviewer_id, reviewee_id FROM user_reviews WHERE item_id = %s"
     cursor.execute(query, (item_id,))
     return cursor.fetchall()
 
@@ -54,9 +54,9 @@ def generate_messages_html(messages, current_user_id):
         html_parts.append(f'<div class="message-bubble {msg_class}"><div class="message-content">{html.escape(content).replace(chr(10), "<br>")}</div><div class="message-time">{sent_at.strftime("%m/%d %H:%M")}</div></div>')
     return "".join(html_parts)
 
-def generate_action_form_html(data, reviews, current_user_id):
+def generate_action_form_html(data, user_reviews, current_user_id):
     purchase_id, item_id, buyer_id, seller_id, status = data
-    reviewers = [r[0] for r in reviews]
+    reviewers = [r[0] for r in user_reviews]
     if current_user_id == seller_id:
         if status == 'shipping_pending':
             return f'<div class="action-panel"><form action="trade.cgi?purchase_id={purchase_id}" method="post"><input type="hidden" name="action" value="notify_shipment"><button type="submit" class="btn-action">発送しました</button></form></div>'
@@ -117,11 +117,11 @@ def main():
 
         item_id, item_title, _, buyer_id, buyer_name, seller_id, seller_name, status = transaction
         messages = get_messages(cursor, item_id)
-        reviews = get_reviews_for_trade(cursor, item_id)
+        user_reviews = get_reviews_for_trade(cursor, item_id)
         
         messages_html = generate_messages_html(messages, CURRENT_USER_ID)
         action_data = (purchase_id, item_id, buyer_id, seller_id, status)
-        action_form_html = generate_action_form_html(action_data, reviews, CURRENT_USER_ID)
+        action_form_html = generate_action_form_html(action_data, user_reviews, CURRENT_USER_ID)
 
         print("Content-Type: text/html; charset=utf-8\n")
         print(f"""
