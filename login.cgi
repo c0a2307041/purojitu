@@ -2,12 +2,19 @@
 import cgi
 import mysql.connector
 import os
+import datetime
+import random
+import string
 from http import cookies
+
+# 文字コード対策
+print("Content-Type: text/html; charset=utf-8")
 
 form = cgi.FieldStorage()
 email = form.getfirst("email", "")
 password = form.getfirst("password", "")
 
+# データベース接続
 connection = mysql.connector.connect(
     host="localhost",
     user="user1",
@@ -17,23 +24,36 @@ connection = mysql.connector.connect(
 )
 cursor = connection.cursor()
 
-# SQLインジェクションの脆弱性あり（後で直す）
+# SQLインジェクション脆弱（意図的に）
 cursor.execute(f"SELECT user_id FROM users WHERE email='{email}' AND password='{password}'")
 row = cursor.fetchone()
-
 
 # ✅ 文字化け対策：Content-Type ヘッダーに charset を明示
 print("Content-Type: text/html; charset=utf-8")
 if row:
     user_id = row[0]
-    session_id = str(user_id)
-    print(f"Set-Cookie: session_id={session_id}; Path=/")
+
+    # ランダムなセッションID（64文字）
+    session_id = ''.join(random.choices(string.ascii_letters + string.digits, k=64))
+
+    # 有効期限：1時間後
+    now = datetime.datetime.now()
+    expires = now + datetime.timedelta(hours=1)
+
+    # Session テーブルへ登録
+    cursor.execute(f"""
+        INSERT INTO sessions (session_id, user_id, created_at, expires_at)
+        VALUES ('{session_id}', {user_id}, NOW(), '{expires.strftime('%Y-%m-%d %H:%M:%S')}')
+    """)
+    connection.commit()
+
+    # Cookie にセッションIDを保存
+    print(f"Set-Cookie: session_id={session_id}; Path=/; HttpOnly")
     print()
-    # ✅ HTML内でも charset 指定
-    print("""
+    print(f"""
     <html><head>
     <meta charset="utf-8">
-    <meta http-equiv='refresh' content='0;URL=main.cgi'>
+    <meta http-equiv='refresh' content='0;URL=top.cgi'>
     </head><body></body></html>
     """)
 else:
@@ -46,5 +66,6 @@ else:
     </body></html>
     """)
 
+cursor.close()
 connection.close()
 
