@@ -32,6 +32,32 @@ def get_user_info(cursor, user_id):
     cursor.execute(query, (user_id,))
     result = cursor.fetchone()
     return result[0] if result else "ゲスト"
+    
+# ▼▼▼ 追加 ▼▼▼
+def get_todo_counts(cursor, user_id):
+    """やることリストの件数を取得する"""
+    counts = {'shipping': 0, 'review': 0}
+    
+    # 発送待ちの件数を取得
+    shipping_query = """
+        SELECT COUNT(*) FROM purchases p
+        JOIN items i ON p.item_id = i.item_id
+        WHERE i.user_id = %s AND p.status = 'shipping_pending'
+    """
+    cursor.execute(shipping_query, (user_id,))
+    counts['shipping'] = cursor.fetchone()[0]
+
+    # 評価待ちの件数を取得
+    review_query = """
+        SELECT COUNT(*) FROM purchases p
+        LEFT JOIN reviews r ON p.item_id = r.item_id AND r.reviewer_id = p.buyer_id
+        WHERE p.buyer_id = %s AND p.status = 'completed' AND r.review_id IS NULL
+    """
+    cursor.execute(review_query, (user_id,))
+    counts['review'] = cursor.fetchone()[0]
+    
+    return counts
+# ▲▲▲ 追加 ▲▲▲
 
 def get_listed_items(cursor, user_id):
     """指定されたユーザーの出品履歴と販売状況を取得する"""
@@ -64,6 +90,37 @@ def get_purchased_items(cursor, user_id):
 
 
 # --- HTML生成の関数 ---
+
+# ▼▼▼ 追加 ▼▼▼
+def generate_todo_list_html(counts):
+    """やることリストのHTMLリスト部分を生成する"""
+    html_parts = []
+    
+    # 発送待ちがあればリスト項目を追加
+    if counts.get('shipping', 0) > 0:
+        html_parts.append(f"""
+        <li class="todo-item">
+            <div class="todo-icon">📦</div>
+            <div class="todo-text">発送待ちの商品があります</div>
+            <span class="todo-badge">{counts['shipping']}</span>
+        </li>
+        """)
+
+    # 評価待ちがあればリスト項目を追加
+    if counts.get('review', 0) > 0:
+        html_parts.append(f"""
+        <li class="todo-item">
+            <div class="todo-icon">⭐</div>
+            <div class="todo-text">評価待ちの取引があります</div>
+            <span class="todo-badge">{counts['review']}</span>
+        </li>
+        """)
+
+    if not html_parts:
+        return '<li class="todo-item"><div class="todo-text">現在、やることはありません。</div></li>'
+        
+    return "".join(html_parts)
+# ▲▲▲ 追加 ▲▲▲
 
 def generate_listed_items_html(items):
     """出品履歴のHTMLを生成する"""
@@ -123,6 +180,10 @@ def main():
         user_name = get_user_info(cursor, CURRENT_USER_ID)
         listed_items = get_listed_items(cursor, CURRENT_USER_ID)
         purchased_items = get_purchased_items(cursor, CURRENT_USER_ID)
+        
+        # ▼▼▼ 修正 ▼▼▼
+        todo_counts = get_todo_counts(cursor, CURRENT_USER_ID)
+        todo_list_html = generate_todo_list_html(todo_counts)
 
         # HTML部品を生成
         listed_items_html = generate_listed_items_html(listed_items)
@@ -178,6 +239,19 @@ def main():
             .account-header h1 {{ font-size: 2rem; }}
             .header-content {{ flex-direction: column; gap: 1rem; }}
         }}
+        
+        /* ▼▼▼ 追加 ▼▼▼ */
+        .clickable-section {{
+            display: block;
+            text-decoration: none;
+            color: white;
+            transition: transform 0.2s ease-in-out;
+        }}
+        .clickable-section:hover {{
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }}
+        /* ▲▲▲ 追加 ▲▲▲ */
     </style>
 </head>
 <body>
@@ -198,13 +272,14 @@ def main():
                 <h1>アカウントページ</h1>
                 <p>ようこそ、{html.escape(user_name)}さん</p>
             </section>
-            <section class="todo-section">
-                <h2 class="section-title" style="margin-bottom: 1.5rem;">やることリスト</h2>
-                <ul class="todo-list">
-                    <li class="todo-item"><div class="todo-icon">📦</div><div class="todo-text">発送待ちの商品があります</div><span class="todo-badge">2</span></li>
-                    <li class="todo-item"><div class="todo-icon">⭐</div><div class="todo-text">評価待の取引があります</div><span class="todo-badge">1</span></li>
-                </ul>
-            </section>
+            <a href="todo.cgi" class="clickable-section">
+                <section class="todo-section">
+                    <h2 class="section-title" style="margin-bottom: 1.5rem;">やることリスト</h2>
+                    <ul class="todo-list">
+                        {todo_list_html}
+                    </ul>
+                </section>
+            </a>
             <section class="history-section">
                 <h2 class="section-title">出品した商品</h2>
                 <div class="products-grid">
