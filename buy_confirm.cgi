@@ -1,52 +1,68 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 # -*- coding: utf-8 -*-
-import cgi, os
+import cgi
+import os
 import mysql.connector
-from http import cookies
-from datetime import datetime
+import datetime
 
 print("Content-Type: text/html; charset=utf-8\n")
 
 form = cgi.FieldStorage()
-item_id = form.getfirst("item_id")
+item_id = form.getfirst("item_id", "")
+session_id = form.getfirst("session_id", "")
+payment_method = form.getfirst("payment_method")
 
-# セッション取得
-cookie = cookies.SimpleCookie(os.environ.get('HTTP_COOKIE', ''))
-session_id = cookie.get('session_id').value if "session_id" in cookie else None
-
-conn = mysql.connector.connect(
-    host='localhost',
-    user='user',
-    password='passwordA1!',
-    database='Free',
-    charset='utf8'
-)
-cursor = conn.cursor(dictionary=True)
-
-# user_id 取得
-cursor.execute("SELECT user_id FROM sessions WHERE session_id = %s", (session_id,))
-user = cursor.fetchone()
-if not user:
-    print("<h1>ログインしてください</h1>")
+if not item_id or not session_id or not payment_method:
+    print("<p>不正なリクエストです。</p>")
     exit()
-user_id = user["user_id"]
 
-# 購入処理
+# DB接続
+conn = mysql.connector.connect(
+    host="localhost",
+    user="user1",
+    passwd="passwordA1!",
+    db="Free",
+    charset="utf8"
+)
 cursor = conn.cursor()
+
+# セッションから user_id を取得
+cursor.execute(f"SELECT user_id FROM sessions WHERE session_id='{session_id}' AND expires_at > NOW()")
+row = cursor.fetchone()
+
+if not row:
+    print("<p>セッションが無効です。ログインし直してください。</p>")
+    exit()
+
+user_id = row[0]
+
+# 商品情報を取得
+cursor.execute(f"SELECT title, price FROM items WHERE item_id={item_id}")
+item = cursor.fetchone()
+
+if not item:
+    print("<p>商品が見つかりません。</p>")
+    exit()
+
+title, price = item
+
+# 購入記録を登録
 cursor.execute("""
     INSERT INTO purchases (item_id, buyer_id, purchased_at)
-    VALUES (%s, %s, %s)
-""", (item_id, user_id, datetime.now()))
+    VALUES (%s, %s, NOW())
+""", (item_id, user_id))
 conn.commit()
 
-print("""
-<html>
-<head><meta charset="utf-8"><title>購入完了</title></head>
+# 結果表示
+print(f"""
+<html><head><meta charset="utf-8"></head>
 <body>
-<h1>購入が完了しました</h1>
-<a href="top.cgi">トップページへ戻る</a>
-</body>
-</html>
+<h1>購入完了</h1>
+<p>商品名: {title}</p>
+<p>価格: {price}円</p>
+<p>支払方法: {payment_method}</p>
+<a href='top.cgi?session_id={session_id}'>トップへ戻る</a>
+</body></html>
 """)
 
 cursor.close()
