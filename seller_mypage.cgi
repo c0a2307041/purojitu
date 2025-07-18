@@ -32,6 +32,7 @@ sub execute_mysql_query {
     my ($query) = @_;
     
     # UTF-8でエンコーディングを指定
+    # SQLインジェクション脆弱性があるため、実際にはDBIとプレースホルダを使用すべきです。
     my $cmd = "mysql -h$db_host -u$db_user -p$db_pass $db_name --default-character-set=utf8mb4 -e \"$query\" 2>/dev/null";
     
     # コマンドの実行
@@ -167,12 +168,25 @@ sub print_error_page {
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>エラー - フリマサイト</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; color: white; text-align: center; }
+        .error-container { background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border-radius: 20px; padding: 40px; border: 1px solid rgba(255, 255, 255, 0.2); max-width: 500px; margin: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+        .error-container h1 { font-size: 2.5rem; margin-bottom: 20px; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }
+        .error-container p { font-size: 1.1rem; margin-bottom: 30px; }
+        .btn { padding: 0.7rem 1.5rem; border: none; border-radius: 25px; font-weight: 600; cursor: pointer; transition: all 0.3s ease; text-decoration: none; display: inline-block; text-align: center; }
+        .btn-primary { background: linear-gradient(45deg, #ff6b6b, #ff8e8e); color: white; box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4); }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.2); }
+    </style>
 </head>
 <body>
-    <h1>エラー</h1>
-    <p>$message</p>
-    <p><a href="/">トップページに戻る</a></p>
+    <div class="error-container">
+        <h1>エラー</h1>
+        <p>$message</p>
+        <a href="/" class="btn btn-primary">トップページに戻る</a>
+    </div>
 </body>
 </html>
     };
@@ -188,22 +202,381 @@ sub print_html_page {
     my $created_at = format_date($seller_info->{created_at});
     my $location = $prefecture . ($city ? " $city" : '');
     
+    # 統計データ
+    my $items_for_sale_count = scalar @$items_for_sale;
+    my $sold_items_count = scalar @$sold_items;
+    my $reviews_count = scalar @$reviews;
+
     print qq{
 <!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>$username さんのページ - フリマサイト</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        
+        header {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 1rem 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .logo {
+            font-size: 2rem;
+            font-weight: bold;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .nav-buttons {
+            display: flex;
+            gap: 1rem;
+        }
+        
+        .btn {
+            padding: 0.7rem 1.5rem;
+            border: none;
+            border-radius: 25px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(45deg, #ff6b6b, #ff8e8e);
+            color: white;
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+        }
+        
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+        }
+        
+        .hero {
+            text-align: center;
+            padding: 3rem 0;
+            color: white;
+        }
+        
+        .hero h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .hero p {
+            font-size: 1.2rem;
+            margin-bottom: 1rem;
+            opacity: 0.9;
+        }
+        
+        .profile-section {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 2rem;
+            margin: 2rem 0;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+        
+        .profile-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .profile-info p {
+            padding: 0.5rem 1rem;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            font-size: 1rem;
+        }
+        
+        .section-title {
+            text-align: center;
+            font-size: 2rem;
+            color: white;
+            margin-bottom: 2rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            padding-top: 1rem;
+        }
+
+        .products-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+
+        .product-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            cursor: pointer;
+        }
+
+        .product-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .product-image {
+            width: 100%;
+            height: 200px;
+            background: linear-gradient(45deg, #ff9a9e, #fecfef);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3rem;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            object-fit: cover;
+        }
+        
+        .product-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .product-info {
+            padding: 1.5rem;
+            color: white;
+        }
+
+        .product-title {
+            font-size: 1.1rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+
+        .product-price {
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #ff6b6b;
+            margin-bottom: 0.5rem;
+        }
+        
+        .product-description {
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+            opacity: 0.8;
+            max-height: 4.5em;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .product-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        .review-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            transition: all 0.3s ease;
+        }
+
+        .review-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .review-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .review-content {
+            font-size: 1rem;
+            line-height: 1.6;
+            margin-bottom: 0.5rem;
+        }
+
+        .review-meta {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            text-align: right;
+        }
+
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            padding: 2rem 0;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            margin: 2rem 0;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .stat-item {
+            text-align: center;
+            color: white;
+        }
+        
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: bold;
+            display: block;
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        .message-section {
+            text-align: center;
+            padding: 2rem 0;
+            color: white;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: white;
+            opacity: 0.8;
+            padding: 2rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            margin: 1rem 0;
+        }
+
+        footer {
+            background: rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(10px);
+            color: white;
+            text-align: center;
+            padding: 2rem 0;
+            margin-top: 3rem;
+        }
+        
+        \@media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2rem;
+            }
+            
+            .stats {
+                flex-direction: column;
+                gap: 1rem;
+            }
+            
+            .header-content {
+                flex-direction: column;
+                gap: 1rem;
+            }
+            
+            .profile-info {
+                grid-template-columns: 1fr;
+            }
+            
+            .products-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
 <body>
-    <h1>$username さんのページ</h1>
-    
-    <h2>ユーザー情報</h2>
-    <p><strong>ニックネーム:</strong> $username</p>
-    <p><strong>登録日:</strong> $created_at</p>
-    <p><strong>所在地:</strong> $location</p>
-    
-    <h2>出品中の商品一覧</h2>
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">🛍️ メル仮</div>
+                <div class="nav-buttons">
+                    <a href="login.html" class="btn btn-secondary">ログイン</a>
+                    <a href="#" class="btn btn-primary">出品する</a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div class="container">
+            <section class="hero">
+                <h1>$username さんのページ</h1>
+                <p>出品者の商品と取引実績をご確認ください</p>
+            </section>
+
+            <section class="profile-section">
+                <div class="profile-info">
+                    <p><strong>👤 ニックネーム:</strong> $username</p>
+                    <p><strong>📅 登録日:</strong> $created_at</p>
+                    <p><strong>📍 所在地:</strong> $location</p>
+                </div>
+            </section>
+
+            <section class="stats">
+                <div class="stat-item">
+                    <span class="stat-number">$items_for_sale_count</span>
+                    <span class="stat-label">出品中</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-number">$sold_items_count</span>
+                    <span class="stat-label">売却済み</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-number">$reviews_count</span>
+                    <span class="stat-label">レビュー</span>
+                </div>
+            </section>
+
+            <section class="products-section">
+                <h2 class="section-title">出品中の商品</h2>
+                <div class="products-grid">
     };
     
     if (@$items_for_sale) {
@@ -212,25 +585,35 @@ sub print_html_page {
             my $description = encode_entities($item->{description});
             my $price = format_price($item->{price});
             my $image_path = encode_entities($item->{image_path});
-            my $created_at = format_date($item->{created_at});
+            my $created_at_formatted = format_date($item->{created_at});
             
             print qq{
-                <div>
-                    <h3>$title</h3>
-                    <p>$description</p>
-                    <p>価格: $price</p>
-                    <p>画像: <img src="$image_path" alt="$title" width="100" onerror="this.src='/images/no-image.jpg'"></p>
-                    <p>出品日: $created_at</p>
-                </div>
-                <hr>
+                    <div class="product-card" onclick="location.href='item_detail.cgi?item_id=$item->{item_id}'">
+                        <div class="product-image">
+                            <img src="$image_path" alt="$title" onerror="this.parentElement.innerHTML='🛍️'">
+                        </div>
+                        <div class="product-info">
+                            <div class="product-title">$title</div>
+                            <div class="product-price">$price</div>
+                            <div class="product-description">$description</div>
+                            <div class="product-meta">
+                                <span>出品日: $created_at_formatted</span>
+                                <span>👁️ 詳細</span>
+                            </div>
+                        </div>
+                    </div>
             };
         }
     } else {
-        print qq{<p>現在出品中の商品はありません。</p>};
+        print qq{<div class="empty-state">現在出品中の商品はありません。</div>};
     }
     
     print qq{
-    <h2>評価・レビュー</h2>
+                </div>
+            </section>
+            
+            <section class="products-section">
+                <h2 class="section-title">評価・レビュー</h2>
     };
     
     if (@$reviews) {
@@ -238,23 +621,29 @@ sub print_html_page {
             my $content = encode_entities($review->{content});
             my $reviewer_name = encode_entities($review->{reviewer_name});
             my $item_title = encode_entities($review->{item_title});
-            my $created_at = format_date($review->{created_at});
+            my $created_at_formatted = format_date($review->{created_at});
             
             print qq{
-                <div>
-                    <h4>$reviewer_name さんからのレビュー</h4>
-                    <p>$content</p>
-                    <p>商品: $item_title | 投稿日: $created_at</p>
-                </div>
-                <hr>
+                    <div class="review-card">
+                        <div class="review-header">
+                            <strong>⭐ $reviewer_name さんからのレビュー</strong>
+                            <span>$created_at_formatted</span>
+                        </div>
+                        <div class="review-content">$content</div>
+                        <div class="review-meta">商品: $item_title</div>
+                    </div>
             };
         }
     } else {
-        print qq{<p>まだレビューがありません。</p>};
+        print qq{<div class="empty-state">まだレビューがありません。</div>};
     }
     
     print qq{
-    <h2>売却済み商品一覧</h2>
+            </section>
+            
+            <section class="products-section">
+                <h2 class="section-title">売却済み商品</h2>
+                <div class="products-grid">
     };
     
     if (@$sold_items) {
@@ -262,27 +651,49 @@ sub print_html_page {
             my $title = encode_entities($item->{title});
             my $price = format_price($item->{price});
             my $buyer_name = encode_entities($item->{buyer_name});
-            my $purchased_at = format_date($item->{purchased_at});
+            my $purchased_at_formatted = format_date($item->{purchased_at});
+            my $image_path = encode_entities($item->{image_path} || '/images/no-image.jpg');
             
             print qq{
-                <div>
-                    <h3>$title</h3>
-                    <p>価格: $price</p>
-                    <p>購入者: $buyer_name | 売却日: $purchased_at</p>
-                </div>
-                <hr>
+                    <div class="product-card">
+                        <div class="product-image">
+                            <img src="$image_path" alt="$title" onerror="this.parentElement.innerHTML='✅'">
+                        </div>
+                        <div class="product-info">
+                            <div class="product-title">$title</div>
+                            <div class="product-price">$price</div>
+                            <div class="product-meta">
+                                <span>購入者: $buyer_name</span>
+                                <span>売却日: $purchased_at_formatted</span>
+                            </div>
+                        </div>
+                    </div>
             };
         }
     } else {
-        print qq{<p>売却済みの商品はありません。</p>};
+        print qq{<div class="empty-state">売却済みの商品はありません。</div>};
     }
     
     print qq{
-    <h2>メッセージ</h2>
-    <p>この出品者との取引でご不明な点がございましたら、メッセージでお問い合わせください。</p>
-    <p><a href="messages.cgi?user_id=$seller_info->{user_id}">メッセージを送る</a></p>
-    
-    <p><a href="/">← トップページに戻る</a></p>
+                </div>
+            </section>
+
+            <section class="message-section">
+                <p>この出品者との取引でご不明な点がございましたら、メッセージでお問い合わせください。</p>
+                <a href="messages.cgi?user_id=$seller_info->{user_id}" class="btn btn-primary">💬 メッセージを送る</a>
+            </section>
+            
+            <div style="text-align: center; margin-top: 3rem;">
+                <a href="/" class="btn btn-secondary">← トップページに戻る</a>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 フリマ. All rights reserved. | 利用規約 | プライバシーポリシー</p>
+        </div>
+    </footer>
 </body>
 </html>
     };
@@ -308,29 +719,4 @@ sub format_price {
     # 3桁区切りでカンマを追加
     $price =~ s/(\d)(?=(\d{3})+(?!\d))/$1,/g;
     return "¥$price";
-}
-
-# デバッグ用：生データを確認する関数
-sub debug_mysql_output {
-    my ($user_id) = @_;
-    
-    print "<h2>デバッグ情報</h2>\n";
-    
-    # 基本的な接続テスト
-    my $test_cmd = "mysql -h$db_host -u$db_user -p$db_pass $db_name --default-character-set=utf8mb4 -e \"SELECT 1\" 2>&1";
-    my @test_results = `$test_cmd`;
-    print "<h3>接続テスト結果:</h3>\n";
-    print "<pre>" . join("", @test_results) . "</pre>\n";
-    
-    # データベースの文字セット確認
-    my $charset_cmd = "mysql -h$db_host -u$db_user -p$db_pass $db_name --default-character-set=utf8mb4 -e \"SHOW VARIABLES LIKE 'character_set%'\" 2>&1";
-    my @charset_results = `$charset_cmd`;
-    print "<h3>文字セット設定:</h3>\n";
-    print "<pre>" . join("", @charset_results) . "</pre>\n";
-    
-    # usersテーブルの確認
-    my $users_cmd = "mysql -h$db_host -u$db_user -p$db_pass $db_name --default-character-set=utf8mb4 -e \"SELECT * FROM users WHERE user_id = $user_id\" 2>&1";
-    my @users_results = `$users_cmd`;
-    print "<h3>ユーザーデータ:</h3>\n";
-    print "<pre>" . join("", @users_results) . "</pre>\n";
 }
