@@ -50,7 +50,7 @@ def get_todo_counts(cursor, user_id):
     # 評価待ちの件数を取得
     review_query = """
         SELECT COUNT(*) FROM purchases p
-        LEFT JOIN reviews r ON p.item_id = r.item_id AND r.reviewer_id = p.buyer_id
+        LEFT JOIN user_reviews r ON p.item_id = r.item_id AND r.reviewer_id = p.buyer_id
         WHERE p.buyer_id = %s AND p.status = 'completed' AND r.review_id IS NULL
     """
     cursor.execute(review_query, (user_id,))

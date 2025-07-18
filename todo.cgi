@@ -25,7 +25,7 @@ def get_awaiting_shipment_items(cursor, user_id):
 
 def get_awaiting_my_review_items(cursor, user_id):
     """自分が購入者で、評価待ちの商品リストを取得"""
-    query = "SELECT p.purchase_id, i.item_id, i.title, i.price, u.username as partner_name FROM purchases p JOIN items i ON p.item_id = i.item_id JOIN users u ON i.user_id = u.user_id LEFT JOIN reviews r ON p.item_id = r.item_id AND r.reviewer_id = p.buyer_id WHERE p.buyer_id = %s AND p.status = 'shipped' AND r.review_id IS NULL ORDER BY p.purchased_at DESC;"
+    query = "SELECT p.purchase_id, i.item_id, i.title, i.price, u.username as partner_name FROM purchases p JOIN items i ON p.item_id = i.item_id JOIN users u ON i.user_id = u.user_id LEFT JOIN user_reviews r ON p.item_id = r.item_id AND r.reviewer_id = p.buyer_id WHERE p.buyer_id = %s AND p.status = 'shipped' AND r.review_id IS NULL ORDER BY p.purchased_at DESC;"
     cursor.execute(query, (user_id,))
     return cursor.fetchall()
 
@@ -38,7 +38,7 @@ def get_awaiting_buyer_review_items(cursor, user_id):
         JOIN items i ON p.item_id = i.item_id
         JOIN users u ON p.buyer_id = u.user_id
         -- 自分(出品者)からのレビューがまだ存在しないことを確認
-        LEFT JOIN reviews r ON p.item_id = r.item_id AND r.reviewer_id = i.user_id
+        LEFT JOIN user_reviews r ON p.item_id = r.item_id AND r.reviewer_id = i.user_id
         WHERE
             i.user_id = %s
             AND p.status = 'completed'
