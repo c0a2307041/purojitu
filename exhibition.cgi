@@ -7,10 +7,18 @@ import os
 import html
 import time
 import random
+import mysql.connector
+import http.cookies
 
 # --- 設定項目 ---
 # 画像をアップロードするディレクトリ名
 UPLOAD_DIR = "/var/www/html/purojitu/uploads/"
+DB_CONFIG = {
+    'host': 'localhost',
+    'user': 'user1',
+    'password': 'passwordA1!',
+    'database': 'Free'
+}
 
 # デバッグ情報をブラウザに表示
 cgitb.enable()
@@ -18,8 +26,40 @@ cgitb.enable()
 # フォームデータを取得
 form = cgi.FieldStorage()
 
+
 # HTMLのヘッダー（Content-Type）を最初に出力
 print("Content-Type: text/html\n")
+
+
+# --- ユーザー名取得処理 ---
+def get_logged_in_username():
+    """セッションからログイン中のユーザー名を取得。未ログインなら'ゲスト'。"""
+    cookie = http.cookies.SimpleCookie(os.environ.get("HTTP_COOKIE", ""))
+    session_id = cookie.get("session_id").value if "session_id" in cookie else None
+
+    if not session_id:
+        return "ゲスト"
+
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT users.username FROM sessions
+            JOIN users ON sessions.user_id = users.user_id
+            WHERE sessions.session_id = %s AND sessions.expires_at > NOW()
+        """, (session_id,))
+        result = cursor.fetchone()
+
+        cursor.close()
+        conn.close()
+
+        if result:
+            return html.escape(result["username"])
+        else:
+            return "ゲスト"
+    except:
+        return "ゲスト"
 
 def print_html_head():
     """HTMLの<head>セクションを出力"""
@@ -91,7 +131,7 @@ def print_header():
             <div class="header-content">
                 <div class="logo">🛍️ メル仮</div>
                 <div class="nav-buttons">
-                    <a href="/" class="btn btn-secondary">トップへ戻る</a>
+                    <a href="/purojitu/top.cgi" class="btn btn-secondary">トップへ戻る</a>
                 </div>
             </div>
         </div>
@@ -104,7 +144,7 @@ def print_listing_form():
     # --- 変更箇所1 START ---
     # 環境変数からログインユーザー名を取得。未ログインの場合は'ゲスト'とする
     # html.escapeで安全な文字列に変換する
-    username = html.escape(os.environ.get('REMOTE_USER', 'ゲスト'))
+    username = get_logged_in_username()
     # --- 変更箇所1 END ---
 
     print(f"""
