@@ -5,6 +5,9 @@ import cgi
 import cgitb
 import mysql.connector
 import html
+import os
+from http import cookies
+from datetime import datetime
 
 # エラー表示を有効にする
 cgitb.enable()
@@ -18,7 +21,7 @@ DB_CONFIG = {
     'charset': 'utf8'
 }
 # 今回はログイン機能を省略し、ユーザーID=1の人で固定
-CURRENT_USER_ID = 1
+# CURRENT_USER_ID は認証後に実際のユーザーIDが設定されます
 
 # --- データベース関連の関数 ---
 
@@ -33,7 +36,6 @@ def get_user_info(cursor, user_id):
     result = cursor.fetchone()
     return result[0] if result else "ゲスト"
     
-# ▼▼▼ 追加 ▼▼▼
 def get_todo_counts(cursor, user_id):
     """やることリストの件数を取得する"""
     counts = {'shipping': 0, 'review': 0}
@@ -57,7 +59,6 @@ def get_todo_counts(cursor, user_id):
     counts['review'] = cursor.fetchone()[0]
     
     return counts
-# ▲▲▲ 追加 ▲▲▲
 
 def get_listed_items(cursor, user_id):
     """指定されたユーザーの出品履歴と販売状況を取得する"""
@@ -88,10 +89,15 @@ def get_purchased_items(cursor, user_id):
     cursor.execute(query, (user_id,))
     return cursor.fetchall()
 
+def validate_session(cursor, session_id):
+    """セッションIDを検証し、対応するユーザーIDを返す"""
+    query = "SELECT user_id FROM sessions WHERE session_id = %s AND expires_at > NOW()"
+    cursor.execute(query, (session_id,))
+    result = cursor.fetchone()
+    return result[0] if result else None
 
 # --- HTML生成の関数 ---
 
-# ▼▼▼ 追加 ▼▼▼
 def generate_todo_list_html(counts):
     """やることリストのHTMLリスト部分を生成する"""
     html_parts = []
@@ -120,7 +126,6 @@ def generate_todo_list_html(counts):
         return '<li class="todo-item"><div class="todo-text">現在、やることはありません。</div></li>'
         
     return "".join(html_parts)
-# ▲▲▲ 追加 ▲▲▲
 
 def generate_listed_items_html(items):
     """出品履歴のHTMLを生成する"""
@@ -167,21 +172,36 @@ def generate_purchased_items_html(items):
         """)
     return "".join(html_parts)
 
-
 # --- メイン処理 ---
 def main():
     """CGIスクリプトのメイン処理"""
     connection = None
+    CURRENT_USER_ID = None
     try:
         connection = get_db_connection()
         cursor = connection.cursor()
+
+        # クッキーからセッションIDを取得
+        sid_cookie = cookies.SimpleCookie(os.environ.get("HTTP_COOKIE"))
+        session_id = None
+        if "session_id" in sid_cookie:
+            session_id = sid_cookie["session_id"].value
+        
+        # セッションIDを検証
+        if session_id:
+            CURRENT_USER_ID = validate_session(cursor, session_id)
+
+        # セッションが無効、またはユーザーIDが取得できない場合はリダイレクト
+        if not CURRENT_USER_ID:
+            print("Status: 302 Found")
+            print("Location: login.html\n")
+            return
 
         # データベースから情報を取得
         user_name = get_user_info(cursor, CURRENT_USER_ID)
         listed_items = get_listed_items(cursor, CURRENT_USER_ID)
         purchased_items = get_purchased_items(cursor, CURRENT_USER_ID)
         
-        # ▼▼▼ 修正 ▼▼▼
         todo_counts = get_todo_counts(cursor, CURRENT_USER_ID)
         todo_list_html = generate_todo_list_html(todo_counts)
 
