@@ -1,8 +1,9 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>フリマ - ログイン</title>
     <style>
         * {
@@ -45,7 +46,7 @@
             font-size: 2rem;
             font-weight: bold;
             color: white;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
         }
 
         .nav-buttons {
@@ -79,7 +80,7 @@
 
         .btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
         }
 
         .login-form-section {
@@ -105,7 +106,7 @@
             color: white;
             margin-bottom: 2rem;
             font-size: 1.8rem;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
         }
 
         .login-box input {
@@ -132,36 +133,93 @@
         }
     </style>
 </head>
+
 <body>
 
-<header>
-    <div class="container">
-        <div class="header-content">
-            <div class="logo">🛍️ メル仮</div>
-            <div class="nav-buttons">
-                <p hidden>ホームに戻る</p>
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">🛍️ メル仮</div>
+                <div class="nav-buttons">
+                    <p hidden>ホームに戻る</p>
+                </div>
             </div>
         </div>
-    </div>
-</header>
+    </header>
 
-<section class="login-form-section">
-    <form class="login-box" action="/purojitu/register.cgi" method="post">
-        <h2>新規登録</h2>
-        <input name="username" placeholder="ユーザー名" required>
-        <input name="email" placeholder="メールアドレス" required>
-        <input type="password" name="password" placeholder="パスワード" required>
-        <input name="address" placeholder="住所" required>
-        <button class="btn btn-primary" name="mode" value="signup">新規登録</button>
-    </form>
-</section>
+    <section class="login-form-section">
+        <form class="login-box" action="/purojitu/register.cgi" method="post" onsubmit="return validatePassword();">
+            <h2>新規登録</h2>
 
-<footer>
-    <div class="container">
-        <p>&copy; 2025 フリマ. All rights reserved. | 利用規約 | プライバシーポリシー</p>
-    </div>
-</footer>
+            <input name="username" placeholder="ユーザー名" required>
+            <input name="email" placeholder="メールアドレス" required>
+            <input type="password" id="password" name="password" placeholder="パスワード" required>
+            <input type="password" id="confirm_password" name="confirm_password" placeholder="パスワード（確認）" required>
+            <p id="password-error" style="color: red; display: none;">パスワードが一致しません。</p>
+
+            <!-- 住所欄 -->
+            <input name="postal_code" id="postal_code" placeholder="郵便番号" required>
+            <button type="button" onclick="searchAddress()">住所検索</button>
+
+            <input name="prefecture" id="prefecture" placeholder="都道府県" required>
+            <input name="city" id="city" placeholder="市区町村" required>
+            <input name="street" id="street" placeholder="番地" required>
+            <input name="building" placeholder="建物名（任意）">
+
+            <script>
+                function searchAddress() {
+                    const postalCode = document.getElementById("postal_code").value;
+                    if (!postalCode.match(/^\d{3}-?\d{4}$/)) {
+                        alert("正しい郵便番号（例: 123-4567）を入力してください。");
+                        return;
+                    }
+
+                    fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${postalCode.replace('-', '')}`)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.results) {
+                                const result = data.results[0];
+                                document.getElementById("prefecture").value = result.address1;
+                                document.getElementById("city").value = result.address2 + result.address3;
+                            } else {
+                                alert("住所が見つかりませんでした。");
+                            }
+                        })
+                        .catch(error => {
+                            console.error("エラー:", error);
+                            alert("住所検索に失敗しました。");
+                        });
+                }
+            </script>
+
+
+            <button class="btn btn-primary" name="mode" value="signup">新規登録</button>
+        </form>
+
+        <script>
+            function validatePassword() {
+                const pass = document.getElementById("password").value;
+                const confirm = document.getElementById("confirm_password").value;
+                const error = document.getElementById("password-error");
+
+                if (pass !== confirm) {
+                    error.style.display = "block";
+                    return false; // フォーム送信をキャンセル
+                } else {
+                    error.style.display = "none";
+                    return true;
+                }
+            }
+        </script>
+
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 フリマ. All rights reserved. | 利用規約 | プライバシーポリシー</p>
+        </div>
+    </footer>
 
 </body>
-</html>
 
+</html>
