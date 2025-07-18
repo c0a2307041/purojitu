@@ -21,7 +21,7 @@ cursor = connection.cursor()
 cursor.execute(f"SELECT user_id FROM users WHERE email='{email}' AND password='{password}'")
 row = cursor.fetchone()
 
-print("Content-Type: text/html")
+print("Content-Type: text/html; charset=utf-8\n")
 if row:
     user_id = row[0]
     session_id = str(user_id)  # セッションIDをユーザIDそのままに
