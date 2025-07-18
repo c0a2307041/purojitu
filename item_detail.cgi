@@ -63,6 +63,12 @@ if not item:
 
 title, description, image_path, price, seller_name, seller_id = item
 
+<form action="buy_item.cgi" method="get">
+  <input type="hidden" name="item_id" value="{{ item_id }}">
+  <input type="submit" value="購入する">
+</form>
+
+
 # レビュー一覧取得
 cursor.execute(f"""
 SELECT users.username, reviews.content
