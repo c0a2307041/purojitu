@@ -85,10 +85,21 @@ print(f"""<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <div class="product">
-        <div class="title">{html.escape(item['title'])}</div>
-        <div class="price">¥{item['price']}</div>
-        <div class="desc">{html.escape(item['description'])}</div>
+<h1>{title}</h1>
+<img src="{image_path}" width="200"><br>
+<strong>価格：</strong> {price}円<br>
+<strong>説明：</strong> {description}<br>
+<strong>出品者：</strong> <a href="/free/seller_page.cgi?seller_id={seller_id}">{seller_name}</a><br><br>
+
+<!-- レビューフォーム -->
+<form method="post" action="/purojitu/item_detail.cgi">
+    <input type="hidden" name="item_id" value="{item_id}">
+    <label>レビュー投稿:</label><br>
+    <textarea name="review" rows="4" cols="50"></textarea><br>
+    <input type="submit" value="送信">
+</form>
+
+<h3>レビュー一覧</h3>
 """)
 
 cursor.execute("""

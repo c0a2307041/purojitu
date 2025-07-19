@@ -148,7 +148,7 @@ if os.environ.get('REQUEST_METHOD', 'POST'):
         category = html.escape(form.getvalue('category', ''))
         price = html.escape(form.getvalue('price', ''))
         description = html.escape(form.getvalue('description', ''))
-        seller = html.escape(form.getvalue('seller', ''))
+        seller = html.escape(form.getvalue('seller_name', ''))
 
         print(f"""
         <div class="container">

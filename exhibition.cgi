@@ -8,7 +8,8 @@ import html
 import time
 import random
 import mysql.connector
-import http.cookies
+from http import cookies
+from datetime import datetime, timedelta
 
 # --- 設定項目 ---
 # 画像をアップロードするディレクトリ名
@@ -23,9 +24,78 @@ DB_CONFIG = {
 # デバッグ情報をブラウザに表示
 cgitb.enable()
 
+# データベース設定
+DB_CONFIG = {
+    'host': 'localhost',
+    'user': 'user1',
+    'passwd': 'passwordA1!',
+    'db': 'Free',
+    'charset': 'utf8'
+}
+
+# --- データベース関連の関数 ---
+def get_db_connection():
+    """データベース接続を取得する"""
+    return mysql.connector.connect(**DB_CONFIG)
+
+def validate_session(cursor, session_id):
+    """セッションIDを検証し、対応するユーザーIDを返す"""
+    query = "SELECT user_id FROM sessions WHERE session_id = %s AND expires_at > NOW()"
+    cursor.execute(query, (session_id,))
+    result = cursor.fetchone()
+    return result[0] if result else None
+
+def get_username_by_id(cursor, user_id):
+    """ユーザーIDからユーザー名を取得する"""
+    query = "SELECT username FROM users WHERE user_id = %s"
+    cursor.execute(query, (user_id,))
+    result = cursor.fetchone()
+    return result[0] if result else "不明なユーザー"
+
+
 # フォームデータを取得
 form = cgi.FieldStorage()
 
+# --- 認証処理 ---
+current_user_id = None
+current_username = "ゲスト"
+connection = None
+cursor = None
+
+try:
+    connection = get_db_connection()
+    cursor = connection.cursor()
+
+    # クッキーからセッションIDを取得
+    sid_cookie = cookies.SimpleCookie(os.environ.get("HTTP_COOKIE"))
+    session_id = None
+    if "session_id" in sid_cookie:
+        session_id = sid_cookie["session_id"].value
+    
+    # セッションIDを検証し、ユーザーIDを取得
+    if session_id:
+        current_user_id = validate_session(cursor, session_id)
+        if current_user_id:
+            current_username = get_username_by_id(cursor, current_user_id)
+
+    # セッションが無効、またはユーザーIDが取得できない場合はlogin.htmlへリダイレクト
+    if not current_user_id:
+        print("Status: 302 Found")
+        print("Location: login.html")
+        print("\n") # ヘッダーの終わりを示す空行
+        exit() # ここでスクリプトの実行を終了
+
+except mysql.connector.Error as err:
+    # DB接続エラーの場合もログインページへリダイレクト（またはエラーページ表示）
+    print("Status: 302 Found")
+    print("Location: login.html")
+    print("\n")
+    exit()
+finally:
+    if cursor:
+        cursor.close()
+    if connection and connection.is_connected():
+        connection.close()
 
 # HTMLのヘッダー（Content-Type）を最初に出力
 print("Content-Type: text/html\n")
@@ -138,14 +208,10 @@ def print_header():
     </header>
 """)
 
-def print_listing_form():
+def print_listing_form(seller_name):
     """商品出品フォームを出力"""
-
-    # --- 変更箇所1 START ---
-    # 環境変数からログインユーザー名を取得。未ログインの場合は'ゲスト'とする
-    # html.escapeで安全な文字列に変換する
-    username = get_logged_in_username()
-    # --- 変更箇所1 END ---
+    # 出品者名は認証処理で取得したものを表示
+    safe_seller_name = html.escape(seller_name)
 
     print(f"""
     <main>
@@ -201,8 +267,9 @@ def print_listing_form():
 
                     <div class="form-group">
                         <label class="form-label">出品者名</label>
-                        <p style="padding: 1rem; background: rgba(0,0,0,0.2); border-radius: 15px;">{username}</p>
-                        <input type="hidden" name="seller" value="{username}">
+                        <p style="padding: 1rem; background: rgba(0,0,0,0.2); border-radius: 15px;">{safe_seller_name}</p>
+                        <input type="hidden" name="seller_id" value="{current_user_id}">
+                        <input type="hidden" name="seller_name" value="{seller_name}">
                     </div>
                     <button type="submit" class="btn btn-primary" style="width:100%;">出品する</button>
                 </form>
@@ -218,7 +285,7 @@ def print_confirmation_page(data, image_url):
     category = html.escape(data.getvalue('category', ''))
     price = html.escape(data.getvalue('price', ''))
     description = html.escape(data.getvalue('description', ''))
-    seller = html.escape(data.getvalue('seller', ''))
+    seller_name = html.escape(data.getvalue('seller_name', '')) # 隠しフィールドから出品者名を取得
 
     print(f"""
     <main>
@@ -247,7 +314,7 @@ def print_confirmation_page(data, image_url):
 
                 <div class="form-group">
                     <p class="form-label">出品者名:</p>
-                    <p>{seller}</p>
+                    <p>{seller_name}</p>
                 </div>
                 </section>
         </div>
@@ -296,6 +363,7 @@ def save_uploaded_file(form_field):
     return None
 
 # --- メイン処理 ---
+# 認証処理が正常に終了した場合のみ、以下のHTML出力とフォーム処理が実行される
 print_html_head()
 print_header()
 
@@ -308,6 +376,7 @@ if os.environ.get('REQUEST_METHOD', 'GET') == 'POST':
     print_confirmation_page(form, image_path)
 else:
     # GETリクエストならフォームを表示
-    print_listing_form()
+    # 認証で取得したユーザー名をフォームに渡す
+    print_listing_form(current_username)
 
 print_footer()
