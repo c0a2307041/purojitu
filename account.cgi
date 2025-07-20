@@ -20,14 +20,11 @@ DB_CONFIG = {
     'db': 'Free',  # 指定されたデータベース
     'charset': 'utf8'
 }
-# 今回はログイン機能を省略し、ユーザーID=1の人で固定
-# CURRENT_USER_ID は認証後に実際のユーザーIDが設定されます
 
 # --- データベース関連の関数 ---
 
 def get_db_connection():
     """データベース接続を取得し、辞書カーソルを有効にする"""
-    # ここを修正: dictionary=True を追加
     return mysql.connector.connect(**DB_CONFIG)
 
 def get_user_info(cursor, user_id):
@@ -35,7 +32,6 @@ def get_user_info(cursor, user_id):
     query = "SELECT username FROM users WHERE user_id = %s"
     cursor.execute(query, (user_id,))
     result = cursor.fetchone()
-    # 辞書カーソルを使用するため、result['username'] に変更
     return result['username'] if result else "ゲスト"
     
 def get_todo_counts(cursor, user_id):
@@ -49,7 +45,6 @@ def get_todo_counts(cursor, user_id):
         WHERE i.user_id = %s AND p.status = 'shipping_pending'
     """
     cursor.execute(shipping_query, (user_id,))
-    # 辞書カーソルを使用するため、結果をキーでアクセス
     counts['shipping'] = cursor.fetchone()['shipping_count']
 
     # 評価待ちの件数を取得
@@ -59,14 +54,12 @@ def get_todo_counts(cursor, user_id):
         WHERE p.buyer_id = %s AND p.status = 'shipped' AND r.review_id IS NULL
     """
     cursor.execute(review_query, (user_id,))
-    # 辞書カーソルを使用するため、結果をキーでアクセス
     counts['review'] = cursor.fetchone()['review_count']
     
     return counts
 
 def get_listed_items(cursor, user_id):
     """指定されたユーザーの出品履歴と販売状況を取得する"""
-    # LEFT JOINを使って、購入されているかどうかを判定
     query = """
         SELECT
             i.title,
@@ -79,20 +72,19 @@ def get_listed_items(cursor, user_id):
         ORDER BY i.created_at DESC;
     """
     cursor.execute(query, (user_id,))
-    # 辞書カーソルを使用するため、そのまま結果を返す
     return cursor.fetchall()
 
 def get_purchased_items(cursor, user_id):
     """指定されたユーザーの購入履歴を取得する"""
+    # ここを修正: p.purchase_id を追加で取得する
     query = """
-        SELECT i.title, i.price, i.image_path
+        SELECT p.purchase_id, i.title, i.price, i.image_path
         FROM purchases AS p
         JOIN items AS i ON p.item_id = i.item_id
         WHERE p.buyer_id = %s
         ORDER BY p.purchased_at DESC;
     """
     cursor.execute(query, (user_id,))
-    # 辞書カーソルを使用するため、そのまま結果を返す
     return cursor.fetchall()
 
 def validate_session(cursor, session_id):
@@ -100,7 +92,6 @@ def validate_session(cursor, session_id):
     query = "SELECT user_id FROM sessions WHERE session_id = %s AND expires_at > NOW()"
     cursor.execute(query, (session_id,))
     result = cursor.fetchone()
-    # 辞書カーソルを使用するため、result['user_id'] に変更
     return result['user_id'] if result else None
 
 # --- HTML生成の関数 ---
@@ -109,7 +100,6 @@ def generate_todo_list_html(counts):
     """やることリストのHTMLリスト部分を生成する"""
     html_parts = []
     
-    # 発送待ちがあればリスト項目を追加
     if counts.get('shipping', 0) > 0:
         html_parts.append(f"""
         <li class="todo-item">
@@ -119,7 +109,6 @@ def generate_todo_list_html(counts):
         </li>
         """)
 
-    # 評価待ちがあればリスト項目を追加
     if counts.get('review', 0) > 0:
         html_parts.append(f"""
         <li class="todo-item">
@@ -129,7 +118,6 @@ def generate_todo_list_html(counts):
         </li>
         """)
 
-    # ここを修正: やることがあれば生成したHTMLを返し、なければ「現在、やることはありません。」を返す
     if not html_parts:
         return '<li class="todo-item"><div class="todo-text">現在、やることはありません。</div></li>'
         
@@ -139,16 +127,14 @@ def generate_listed_items_html(items):
     """出品履歴のHTMLを生成する"""
     html_parts = []
     for item in items:
-        # 辞書カーソルを使用するため、キーでアクセス
         title = item['title']
         price = item['price']
         image_path = item['image_path']
-        status = item['status'] # statusも辞書キーで取得
+        status = item['status']
 
         status_class = "status-sold" if status == 'sold' else "status-selling"
         status_text = "売り切れ" if status == 'sold' else "出品中"
         
-        # XSS対策のため、表示するデータはHTMLエスケープする
         safe_title = html.escape(title)
         
         display_image_path = html.escape(image_path) if image_path else "/purojitu/images/noimage.png"
@@ -172,7 +158,8 @@ def generate_purchased_items_html(items):
     """購入履歴のHTMLを生成する"""
     html_parts = []
     for item in items:
-        # 辞書カーソルを使用するため、キーでアクセス
+        # ここを修正: purchase_id を取得し、リンクに使う
+        purchase_id = item['purchase_id']
         title = item['title']
         price = item['price']
         image_path = item['image_path']
@@ -184,14 +171,15 @@ def generate_purchased_items_html(items):
 
         formatted_price = f"¥{price:,}"
 
+        # ここを修正: product-card を <a href="..."> で囲む
         html_parts.append(f"""
-        <div class="product-card">
+        <a href="trade.cgi?purchase_id={purchase_id}" class="product-card">
             <div class="product-image">{image_tag}</div>
             <div class="product-info">
                 <div class="product-title">{safe_title}</div>
                 <div class="product-price">{formatted_price}</div>
             </div>
-        </div>
+        </a>
         """)
     return "".join(html_parts)
 
@@ -201,7 +189,6 @@ def main():
     connection = None
     CURRENT_USER_ID = None
     try:
-        # ここを修正: データベース接続時に辞書カーソルを使用するよう設定
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True) # ここで辞書カーソルを設定
 
@@ -258,11 +245,22 @@ def main():
         .btn:hover {{ transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.2); }}
         .section-title {{ text-align: center; font-size: 2rem; color: white; margin-bottom: 2rem; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }}
         .products-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 2rem; margin-top: 2rem; }}
-        .product-card {{ background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border-radius: 20px; overflow: hidden; transition: all 0.3s ease; border: 1px solid rgba(255, 255, 255, 0.2); position: relative; }}
+        /* .product-card を直接リンクに使うため、スタイルを調整 */
+        .product-card {{ 
+            background: rgba(255, 255, 255, 0.1); 
+            backdrop-filter: blur(10px); 
+            border-radius: 20px; 
+            overflow: hidden; 
+            transition: all 0.3s ease; 
+            border: 1px solid rgba(255, 255, 255, 0.2); 
+            position: relative; 
+            display: block; /* aタグをブロック要素にする */
+            text-decoration: none; /* 下線を消す */
+            color: inherit; /* 色を継承 */
+        }}
         .product-card:hover {{ transform: translateY(-5px); box-shadow: 0 10px 30px rgba(0,0,0,0.3); }}
-        /* product-imageに背景色や文字サイズは不要になり、imgタグにフィットするように修正 */
         .product-image {{ width: 100%; height: 200px; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 20px 20px 0 0; }}
-        .product-image img {{ width: 100%; height: 100%; object-fit: cover; }} /* imgタグが親要素にフィットするように設定 */
+        .product-image img {{ width: 100%; height: 100%; object-fit: cover; }}
 
         .product-info {{ padding: 1.5rem; color: white; }}
         .product-title {{ font-size: 1.1rem; font-weight: bold; margin-bottom: 0.5rem; }}
@@ -287,7 +285,6 @@ def main():
             .header-content {{ flex-direction: column; gap: 1rem; }}
         }}
         
-        /* ▼▼▼ 追加 ▼▼▼ */
         .clickable-section {{
             display: block;
             text-decoration: none;
@@ -298,7 +295,6 @@ def main():
             transform: translateY(-5px);
             box-shadow: 0 10px 30px rgba(0,0,0,0.3);
         }}
-        /* ▲▲▲ 追加 ▲▲▲ */
     </style>
 </head>
 <body>
@@ -350,12 +346,10 @@ def main():
 </html>
         """)
     except mysql.connector.Error as err:
-        # エラー発生時の処理
         print("Content-Type: text/html; charset=utf-8\n")
         print("<h1>データベースエラー</h1>")
         print(f"<p>エラーが発生しました: {html.escape(str(err))}</p>")
     finally:
-        # 確実に接続を閉じる
         if connection and connection.is_connected():
             cursor.close()
             connection.close()
