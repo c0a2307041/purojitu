@@ -26,7 +26,8 @@ DB_CONFIG = {
 # --- データベース関連の関数 ---
 
 def get_db_connection():
-    """データベース接続を取得する"""
+    """データベース接続を取得し、辞書カーソルを有効にする"""
+    # ここを修正: dictionary=True を追加
     return mysql.connector.connect(**DB_CONFIG)
 
 def get_user_info(cursor, user_id):
@@ -34,7 +35,8 @@ def get_user_info(cursor, user_id):
     query = "SELECT username FROM users WHERE user_id = %s"
     cursor.execute(query, (user_id,))
     result = cursor.fetchone()
-    return result[0] if result else "ゲスト"
+    # 辞書カーソルを使用するため、result['username'] に変更
+    return result['username'] if result else "ゲスト"
     
 def get_todo_counts(cursor, user_id):
     """やることリストの件数を取得する"""
@@ -42,21 +44,23 @@ def get_todo_counts(cursor, user_id):
     
     # 発送待ちの件数を取得
     shipping_query = """
-        SELECT COUNT(*) FROM purchases p
+        SELECT COUNT(*) AS shipping_count FROM purchases p
         JOIN items i ON p.item_id = i.item_id
         WHERE i.user_id = %s AND p.status = 'shipping_pending'
     """
     cursor.execute(shipping_query, (user_id,))
-    counts['shipping'] = cursor.fetchone()[0]
+    # 辞書カーソルを使用するため、結果をキーでアクセス
+    counts['shipping'] = cursor.fetchone()['shipping_count']
 
     # 評価待ちの件数を取得
     review_query = """
-        SELECT COUNT(*) FROM purchases p
+        SELECT COUNT(*) AS review_count FROM purchases p
         LEFT JOIN user_reviews r ON p.item_id = r.item_id AND r.reviewer_id = p.buyer_id
-        WHERE p.buyer_id = %s AND p.status = 'completed' AND r.review_id IS NULL
+        WHERE p.buyer_id = %s AND p.status = 'shipped' AND r.review_id IS NULL
     """
     cursor.execute(review_query, (user_id,))
-    counts['review'] = cursor.fetchone()[0]
+    # 辞書カーソルを使用するため、結果をキーでアクセス
+    counts['review'] = cursor.fetchone()['review_count']
     
     return counts
 
@@ -75,6 +79,7 @@ def get_listed_items(cursor, user_id):
         ORDER BY i.created_at DESC;
     """
     cursor.execute(query, (user_id,))
+    # 辞書カーソルを使用するため、そのまま結果を返す
     return cursor.fetchall()
 
 def get_purchased_items(cursor, user_id):
@@ -87,6 +92,7 @@ def get_purchased_items(cursor, user_id):
         ORDER BY p.purchased_at DESC;
     """
     cursor.execute(query, (user_id,))
+    # 辞書カーソルを使用するため、そのまま結果を返す
     return cursor.fetchall()
 
 def validate_session(cursor, session_id):
@@ -94,7 +100,8 @@ def validate_session(cursor, session_id):
     query = "SELECT user_id FROM sessions WHERE session_id = %s AND expires_at > NOW()"
     cursor.execute(query, (session_id,))
     result = cursor.fetchone()
-    return result[0] if result else None
+    # 辞書カーソルを使用するため、result['user_id'] に変更
+    return result['user_id'] if result else None
 
 # --- HTML生成の関数 ---
 
@@ -122,6 +129,7 @@ def generate_todo_list_html(counts):
         </li>
         """)
 
+    # ここを修正: やることがあれば生成したHTMLを返し、なければ「現在、やることはありません。」を返す
     if not html_parts:
         return '<li class="todo-item"><div class="todo-text">現在、やることはありません。</div></li>'
         
@@ -131,14 +139,18 @@ def generate_listed_items_html(items):
     """出品履歴のHTMLを生成する"""
     html_parts = []
     for item in items:
-        title, price, image_path, status = item
+        # 辞書カーソルを使用するため、キーでアクセス
+        title = item['title']
+        price = item['price']
+        image_path = item['image_path']
+        status = item['status'] # statusも辞書キーで取得
+
         status_class = "status-sold" if status == 'sold' else "status-selling"
         status_text = "売り切れ" if status == 'sold' else "出品中"
         
         # XSS対策のため、表示するデータはHTMLエスケープする
         safe_title = html.escape(title)
         
-        # ★ ここを修正: image_path があれば <img> タグを生成し、なければデフォルト画像を表示
         display_image_path = html.escape(image_path) if image_path else "/purojitu/images/noimage.png"
         image_tag = f'<img src="{display_image_path}" alt="{safe_title}">'
 
@@ -160,10 +172,13 @@ def generate_purchased_items_html(items):
     """購入履歴のHTMLを生成する"""
     html_parts = []
     for item in items:
-        title, price, image_path = item
+        # 辞書カーソルを使用するため、キーでアクセス
+        title = item['title']
+        price = item['price']
+        image_path = item['image_path']
+
         safe_title = html.escape(title)
         
-        # ★ ここを修正: image_path があれば <img> タグを生成し、なければデフォルト画像を表示
         display_image_path = html.escape(image_path) if image_path else "/purojitu/images/noimage.png"
         image_tag = f'<img src="{display_image_path}" alt="{safe_title}">'
 
@@ -186,8 +201,9 @@ def main():
     connection = None
     CURRENT_USER_ID = None
     try:
+        # ここを修正: データベース接続時に辞書カーソルを使用するよう設定
         connection = get_db_connection()
-        cursor = connection.cursor()
+        cursor = connection.cursor(dictionary=True) # ここで辞書カーソルを設定
 
         # クッキーからセッションIDを取得
         sid_cookie = cookies.SimpleCookie(os.environ.get("HTTP_COOKIE"))

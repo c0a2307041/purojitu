@@ -78,27 +78,31 @@ def main():
         form = cgi.FieldStorage()
         search_query = form.getfirst("search", "").strip()
 
+        # SQLクエリの基本形（購入されていない商品のみ）
+        base_sql = """
+            SELECT i.item_id, i.title, i.price, i.image_path
+            FROM items AS i
+            LEFT JOIN purchases AS p ON i.item_id = p.item_id
+            WHERE p.purchase_id IS NULL -- ここが変更点: 購入されていない商品のみ
+        """
+        params = []
+
         if search_query:
-            sql = """
-                SELECT item_id, title, price, image_path 
-                FROM items 
-                WHERE title LIKE %s
-            """
-            params = [f"%{search_query}%"]
+            sql = base_sql + " AND i.title LIKE %s"
+            params.append(f"%{search_query}%")
             if user_id:
-                sql += " AND user_id != %s"
+                sql += " AND i.user_id != %s"
                 params.append(user_id)
-            sql += " ORDER BY created_at DESC"
+            sql += " ORDER BY i.created_at DESC"
             cursor.execute(sql, tuple(params))
             items = cursor.fetchall()
             section_title = f'検索結果: 「{html.escape(search_query)}」'
         else:
-            sql = "SELECT item_id, title, price, image_path FROM items"
-            params = []
+            sql = base_sql
             if user_id:
-                sql += " WHERE user_id != %s"
+                sql += " AND i.user_id != %s"
                 params.append(user_id)
-            sql += " ORDER BY created_at DESC"
+            sql += " ORDER BY i.created_at DESC"
             cursor.execute(sql, tuple(params))
             items = cursor.fetchall()
             section_title = "新着商品"
@@ -244,4 +248,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
