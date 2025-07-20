@@ -1,131 +1,247 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# print("Content-Type: text/html; charset=utf-8\n")
 
 import cgi
+import cgitb # エラー表示のために追加
 import mysql.connector
 import html
 import os
 from http import cookies
-from datetime import datetime
+from datetime import datetime # セッションの期限切れチェックのため追加
 
-print("Content-Type: text/html; charset=utf-8\n")
+# エラー表示を有効にする
+cgitb.enable()
 
-# セッションID取得
-cookie = cookies.SimpleCookie(os.environ.get("HTTP_COOKIE", ""))
-session_id = cookie.get("session_id")
-user_id = None
-user_name = ""
+# DB接続情報
+DB_CONFIG = {
+    'host': 'localhost',
+    'user': 'user1',
+    'passwd': 'passwordA1!',
+    'db': 'Free',
+    'charset': 'utf8'
+}
 
-# DB接続
-DB_HOST = 'localhost'
-DB_USER = 'user1'
-DB_PASS = 'passwordA1!'
-DB_NAME = 'Free'
+def get_db_connection():
+    return mysql.connector.connect(**DB_CONFIG)
 
-try:
-    conn = mysql.connector.connect(
-        host=DB_HOST,
-        user=DB_USER,
-        password=DB_PASS,
-        database=DB_NAME,
-        charset='utf8'
-    )
-    cursor = conn.cursor(dictionary=True)
+def get_user_info(cursor, user_id):
+    query = "SELECT username FROM users WHERE user_id = %s"
+    cursor.execute(query, (user_id,))
+    result = cursor.fetchone()
+    return result['username'] if result else "ゲスト"
 
-    # セッションからログインユーザー情報を取得
-    if session_id:
-        sid = session_id.value
-        cursor.execute("SELECT user_id FROM sessions WHERE session_id = %s", (sid,))
-        session = cursor.fetchone()
-        if session:
-            user_id = session['user_id']
-            cursor.execute("SELECT username FROM users WHERE user_id = %s", (user_id,))
-            user = cursor.fetchone()
-            if user:
-                user_name = user['username']
+def validate_session(cursor, session_id):
+    query = "SELECT user_id FROM sessions WHERE session_id = %s AND expires_at > NOW()"
+    cursor.execute(query, (session_id,))
+    result = cursor.fetchone()
+    return result['user_id'] if result else None
 
-    # 商品一覧を取得
-    cursor.execute("SELECT * FROM items ORDER BY item_id DESC")
-    items = cursor.fetchall()
+def main():
+    connection = None
+    user_id = None
+    user_name = "ゲスト"
 
-except mysql.connector.Error as e:
-    print(f"<h1>データベース接続エラー: {html.escape(str(e))}</h1>")
-    exit()
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
 
-# HTML表示
-print(f"""
+        sid_cookie = cookies.SimpleCookie(os.environ.get("HTTP_COOKIE", ""))
+        session_id = None
+        cookie_user_id = None
+
+        if "session_id" in sid_cookie and "user_id" in sid_cookie:
+            session_id = sid_cookie["session_id"].value
+            cookie_user_id = sid_cookie["user_id"].value
+
+            # セッションテーブルで正当性を検証
+            valid_user_id = validate_session(cursor, session_id)
+
+            # セッションが無効 or クッキーのuser_idとセッションテーブルのuser_idが不一致
+            if not valid_user_id or str(valid_user_id) != cookie_user_id:
+                print("Status: 302 Found")
+                print("Location: login.html")
+                print()
+                return
+
+            user_id = valid_user_id
+            user_name = get_user_info(cursor, user_id)
+        else:
+            # クッキーに必要な情報がない場合もログインページへ
+            print("Status: 302 Found")
+            print("Location: login.html")
+            print()
+            return
+
+        print("Content-Type: text/html; charset=utf-8\n")
+
+        form = cgi.FieldStorage()
+        search_query = form.getfirst("search", "").strip()
+
+        if search_query:
+            sql = """
+                SELECT item_id, title, price, image_path 
+                FROM items 
+                WHERE title LIKE %s
+            """
+            params = [f"%{search_query}%"]
+            if user_id:
+                sql += " AND user_id != %s"
+                params.append(user_id)
+            sql += " ORDER BY created_at DESC"
+            cursor.execute(sql, tuple(params))
+            items = cursor.fetchall()
+            section_title = f'検索結果: 「{html.escape(search_query)}」'
+        else:
+            sql = "SELECT item_id, title, price, image_path FROM items"
+            params = []
+            if user_id:
+                sql += " WHERE user_id != %s"
+                params.append(user_id)
+            sql += " ORDER BY created_at DESC"
+            cursor.execute(sql, tuple(params))
+            items = cursor.fetchall()
+            section_title = "新着商品"
+
+        products_html = []
+        for item in items:
+            title = html.escape(item['title'])
+            price = item['price']
+            item_id = item['item_id']
+            image_path = html.escape(item['image_path']) if item['image_path'] else "/purojitu/images/noimage.png"
+            formatted_price = f"¥{price:,}"
+
+            products_html.append(f"""
+            <a href="item_detail.cgi?item_id={item_id}" class="product-card">
+                <div class="product-image">
+                    <img src="{image_path}" alt="{title}">
+                </div>
+                <div class="product-info">
+                    <div class="product-title">{title}</div>
+                    <div class="product-price">{formatted_price}</div>
+                </div>
+            </a>
+            """)
+
+        if not products_html:
+            products_html.append('<p class="no-items-message">該当する商品はありません。</p>')
+
+        print(f"""
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <title>フリマアプリ - トップページ</title>
-    <style>
-        body {{
-            font-family: sans-serif;
-            background-color: #f0f0f0;
-            padding: 20px;
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>フリマアプリ - トップページ</title>
+<style>
+    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; color: white; }}
+    .container {{ max-width: 1200px; margin: 0 auto; padding: 0 20px; }}
+    header {{ background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(255, 255, 255, 0.2); padding: 1rem 0; position: sticky; top: 0; z-index: 100; }}
+    .header-content {{ display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }}
+    .logo {{ font-size: 2rem; font-weight: bold; color: white; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }}
+    .nav-buttons {{ display: flex; gap: 1rem; }}
+    .btn {{ padding: 0.7rem 1.5rem; border: none; border-radius: 25px; font-weight: 600; cursor: pointer; transition: all 0.3s ease; text-decoration: none; display: inline-block; text-align: center; }}
+    .btn-primary {{ background: linear-gradient(45deg, #ff6b6b, #ff8e8e); color: white; box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4); }}
+    .btn-secondary {{ background: rgba(255, 255, 255, 0.2); color: white; border: 1px solid rgba(255, 255, 255, 0.3); }}
+    .btn:hover {{ transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.2); }}
+    .section-title {{ text-align: center; font-size: 2rem; color: white; margin-bottom: 2rem; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }}
+    .products-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 2rem; margin-top: 2rem; }}
+    .product-card {{ background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border-radius: 20px; overflow: hidden; transition: all 0.3s ease; border: 1px solid rgba(255, 255, 255, 0.2); position: relative; display: block; text-decoration: none; color: inherit; }}
+    .product-card:hover {{ transform: translateY(-5px); box-shadow: 0 10px 30px rgba(0,0,0,0.3); }}
+    .product-image {{ width: 100%; height: 200px; background: linear-gradient(45deg, #ff9a9e, #fecfef); display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 20px 20px 0 0;}}
+    .product-image img {{ width: 100%; height: 100%; object-fit: cover; }}
+    .product-info {{ padding: 1.5rem; color: white; }}
+    .product-title {{ font-size: 1.1rem; font-weight: bold; margin-bottom: 0.5rem; }}
+    .product-price {{ font-size: 1.3rem; font-weight: bold; color: #ff6b6b; margin-bottom: 0.5rem; }}
+    footer {{ background: rgba(0, 0, 0, 0.2); backdrop-filter: blur(10px); color: white; text-align: center; padding: 2rem 0; margin-top: 3rem; }}
+    .top-header {{ text-align: center; padding: 3rem 0 1rem 0; }}
+    .top-header p {{ font-size: 1.5rem; opacity: 0.9; }}
+    .no-items-message {{ text-align: center; padding: 50px; font-size: 1.2rem; opacity: 0.8; }}
+    form.search-form {{
+        display: flex;
+        gap: 0.5rem;
+    }}
+    form.search-form input[type="text"] {{
+        flex: 1;
+        padding: 0.5rem 1rem;
+        border-radius: 25px;
+        border: none;
+        font-size: 1rem;
+    }}
+    form.search-form button {{
+        padding: 0 1.5rem;
+        border: none;
+        border-radius: 25px;
+        background: linear-gradient(45deg, #ff6b6b, #ff8e8e);
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }}
+    form.search-form button:hover {{
+        filter: brightness(1.1);
+    }}
+    @media (max-width: 768px) {{
+        .header-content {{
+            flex-direction: column;
+            align-items: stretch;
         }}
-        h1 {{ color: #333; }}
-        .product-list {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 15px;
-        }}
-        .product-card {{
-            background-color: #fff;
-            border: 1px solid #ccc;
-            border-radius: 10px;
-            width: 200px;
-            padding: 10px;
-            box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
-        }}
-        .product-card img {{
+        form.search-form {{
             width: 100%;
-            height: 150px;
-            object-fit: cover;
         }}
-        .product-title {{
-            font-weight: bold;
-            margin-top: 10px;
-        }}
-        .product-price {{
-            color: green;
-        }}
-    </style>
+    }}
+</style>
 </head>
 <body>
-    <h1>ようこそ！フリマアプリ</h1>
-    <p>ログイン中: {html.escape(user_name) if user_id else '未ログイン'}</p>
-    <hr>
-    <div>
-        <a href="top.cgi">トップ</a> |
-        <a href="exhibition.cgi?session_id={html.escape(sid) if user_id else ''}">出品する</a>
-    </div>
-    <hr>
-    <div class="product-list">
-""")
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div class="logo"><a href="top.cgi" style="text-decoration: none; color: white;">🛍️ メル仮</a></div>
 
-# 商品一覧表示
-for item in items:
-    title = html.escape(item['title'])
-    price = item['price']
-    item_id = item['item_id']
-    print(f"""
-        <div class="product-card">
-            <a href="item_detail.cgi?item_id={item_id}&session_id={html.escape(sid) if user_id else ''}">
-                <div class="product-title">{title}</div>
-                <div class="product-price">¥{price}</div>
-            </a>
+                <form method="get" class="search-form" action="top.cgi" style="flex:1; max-width:400px;">
+                    <input type="text" name="search" placeholder="商品名で検索" value="{html.escape(search_query)}" autocomplete="off" />
+                    <button type="submit">検索</button>
+                </form>
+
+                <div class="nav-buttons">
+                    <a href="account.cgi" class="btn btn-secondary">マイページ</a>
+                    <a href="exhibition.cgi" class="btn btn-primary">出品する</a>
+                </div>
+            </div>
         </div>
-    """)
+    </header>
 
-# フッター
-print("""
-    </div>
+    <main>
+        <div class="container">
+            <section class="top-header">
+                <h1>ようこそ、{html.escape(user_name)}さん！</h1>
+            </section>
+            <section class="products-section">
+                <h2 class="section-title">{section_title}</h2>
+                <div class="products-grid">
+                    {''.join(products_html)}
+                </div>
+            </section>
+        </div>
+    </main>
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 フリマ. All rights reserved. | 利用規約 | プライバシーポリシー</p>
+        </div>
+    </footer>
 </body>
 </html>
-""")
+        """)
+    except mysql.connector.Error as err:
+        print("Content-Type: text/html; charset=utf-8\n")
+        print("<h1>データベースエラー</h1>")
+        print(f"<p>エラーが発生しました: {html.escape(str(err))}</p>")
+    finally:
+        if connection and connection.is_connected():
+            cursor.close()
+            connection.close()
 
-cursor.close()
-conn.close()
+if __name__ == "__main__":
+    main()
 
