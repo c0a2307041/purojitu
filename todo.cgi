@@ -5,6 +5,9 @@ import cgi
 import cgitb
 import mysql.connector
 import html
+import os # 環境変数 (HTTP_COOKIE) を取得するために必要
+from http import cookies # クッキーを扱うために必要
+from datetime import datetime # セッションの期限切れチェックのため必要
 
 cgitb.enable()
 
@@ -12,10 +15,25 @@ DB_CONFIG = {
     'host': 'localhost', 'user': 'user1', 'passwd': 'passwordA1!',
     'db': 'Free', 'charset': 'utf8'
 }
-CURRENT_USER_ID = 1
+# CURRENT_USER_ID は認証後に動的に設定されるため、ここでは削除
 
 def get_db_connection():
     return mysql.connector.connect(**DB_CONFIG)
+
+# top.cgi から持ってきたセッション検証関数
+def validate_session(cursor, session_id):
+    query = "SELECT user_id FROM sessions WHERE session_id = %s AND expires_at > NOW()"
+    cursor.execute(query, (session_id,))
+    result = cursor.fetchone()
+    return result['user_id'] if result else None
+
+# top.cgi から持ってきたユーザー情報取得関数 (辞書カーソルに対応)
+def get_user_info(cursor, user_id):
+    query = "SELECT username FROM users WHERE user_id = %s"
+    cursor.execute(query, (user_id,))
+    result = cursor.fetchone()
+    return result['username'] if result else "ゲスト"
+
 
 def get_awaiting_shipment_items(cursor, user_id):
     """発送待ちの商品リストを取得"""
@@ -29,7 +47,6 @@ def get_awaiting_my_review_items(cursor, user_id):
     cursor.execute(query, (user_id,))
     return cursor.fetchall()
 
-# ▼▼▼ 追加 ▼▼▼
 def get_awaiting_buyer_review_items(cursor, user_id):
     """自分が出品者で、購入者の評価待ちリストを取得"""
     query = """
@@ -47,34 +64,65 @@ def get_awaiting_buyer_review_items(cursor, user_id):
     """
     cursor.execute(query, (user_id,))
     return cursor.fetchall()
-# ▲▲▲ 追加 ▲▲▲
 
 def generate_todo_html(items, button_text, button_link_base):
     if not items:
         return "<li>対象の取引はありません。</li>"
     html_parts = []
     for item in items:
-        purchase_id, item_id, title, price, partner_name = item
+        purchase_id, item_id, title, price, partner_name = item['purchase_id'], item['item_id'], item['title'], item['price'], item['partner_name'] # 辞書形式で取得
         action_link = f"{button_link_base}?purchase_id={purchase_id}"
         html_parts.append(f'<li class="todo-detail-item"><a href="item_detail.cgi?item_id={item_id}" class="item-link"><div class="item-info"><span class="item-title">{html.escape(title)}</span><span class="item-meta">¥{price:,} / 取引相手: {html.escape(partner_name)}さん</span></div></a><a href="{action_link}" class="btn-action">{button_text}</a></li>')
     return "".join(html_parts)
 
 def main():
     connection = None
+    user_id = None # 動的に設定されるユーザーID
+    user_name = "ゲスト"
+
     try:
         connection = get_db_connection()
-        cursor = connection.cursor()
+        cursor = connection.cursor(dictionary=True) # 辞書形式で結果を取得するように変更
+
+        # --- セッションとユーザーIDの取得と検証 ---
+        sid_cookie = cookies.SimpleCookie(os.environ.get("HTTP_COOKIE", ""))
+        session_id_from_cookie = None
+        user_id_from_cookie = None
+
+        if "session_id" in sid_cookie and "user_id" in sid_cookie:
+            session_id_from_cookie = sid_cookie["session_id"].value
+            user_id_from_cookie = sid_cookie["user_id"].value
+
+            # セッションテーブルで正当性を検証
+            valid_user_id = validate_session(cursor, session_id_from_cookie)
+
+            # セッションが無効 or クッキーのuser_idとセッションテーブルのuser_idが不一致
+            if not valid_user_id or str(valid_user_id) != user_id_from_cookie:
+                print("Status: 302 Found")
+                print("Location: login.html")
+                print()
+                return # ここで処理を終了
+
+            user_id = valid_user_id # 認証されたユーザーIDを使用
+            user_name = get_user_info(cursor, user_id)
+        else:
+            # クッキーに必要な情報がない場合もログインページへ
+            print("Status: 302 Found")
+            print("Location: login.html")
+            print()
+            return # ここで処理を終了
+        # --- セッションとユーザーIDの取得と検証 終わり ---
+
 
         # 各リストのデータを取得
-        awaiting_shipment = get_awaiting_shipment_items(cursor, CURRENT_USER_ID)
-        awaiting_my_review = get_awaiting_my_review_items(cursor, CURRENT_USER_ID)
-        # ▼▼▼ 追加 ▼▼▼
-        awaiting_buyer_review = get_awaiting_buyer_review_items(cursor, CURRENT_USER_ID)
+        # 認証された user_id を使用
+        awaiting_shipment = get_awaiting_shipment_items(cursor, user_id)
+        awaiting_my_review = get_awaiting_my_review_items(cursor, user_id)
+        awaiting_buyer_review = get_awaiting_buyer_review_items(cursor, user_id)
         
         # HTML部品を生成
         shipment_html = generate_todo_html(awaiting_shipment, "取引画面へ", "trade.cgi")
         my_review_html = generate_todo_html(awaiting_my_review, "評価する", "trade.cgi")
-        # ▼▼▼ 追加 ▼▼▼
         buyer_review_html = generate_todo_html(awaiting_buyer_review, "購入者を評価", "trade.cgi")
 
         print("Content-Type: text/html; charset=utf-8\n")

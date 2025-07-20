@@ -137,13 +137,17 @@ def generate_listed_items_html(items):
         
         # XSS対策のため、表示するデータはHTMLエスケープする
         safe_title = html.escape(title)
-        safe_image_path = html.escape(image_path) # 絵文字なので実質不要だが念のため
+        
+        # ★ ここを修正: image_path があれば <img> タグを生成し、なければデフォルト画像を表示
+        display_image_path = html.escape(image_path) if image_path else "/purojitu/images/noimage.png"
+        image_tag = f'<img src="{display_image_path}" alt="{safe_title}">'
+
         formatted_price = f"¥{price:,}"
 
         html_parts.append(f"""
         <div class="product-card">
             <div class="product-status {status_class}">{status_text}</div>
-            <div class="product-image">{safe_image_path}</div>
+            <div class="product-image">{image_tag}</div>
             <div class="product-info">
                 <div class="product-title">{safe_title}</div>
                 <div class="product-price">{formatted_price}</div>
@@ -158,12 +162,16 @@ def generate_purchased_items_html(items):
     for item in items:
         title, price, image_path = item
         safe_title = html.escape(title)
-        safe_image_path = html.escape(image_path)
+        
+        # ★ ここを修正: image_path があれば <img> タグを生成し、なければデフォルト画像を表示
+        display_image_path = html.escape(image_path) if image_path else "/purojitu/images/noimage.png"
+        image_tag = f'<img src="{display_image_path}" alt="{safe_title}">'
+
         formatted_price = f"¥{price:,}"
 
         html_parts.append(f"""
         <div class="product-card">
-            <div class="product-image">{safe_image_path}</div>
+            <div class="product-image">{image_tag}</div>
             <div class="product-info">
                 <div class="product-title">{safe_title}</div>
                 <div class="product-price">{formatted_price}</div>
@@ -236,7 +244,10 @@ def main():
         .products-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 2rem; margin-top: 2rem; }}
         .product-card {{ background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border-radius: 20px; overflow: hidden; transition: all 0.3s ease; border: 1px solid rgba(255, 255, 255, 0.2); position: relative; }}
         .product-card:hover {{ transform: translateY(-5px); box-shadow: 0 10px 30px rgba(0,0,0,0.3); }}
-        .product-image {{ width: 100%; height: 200px; background: linear-gradient(45deg, #ff9a9e, #fecfef); display: flex; align-items: center; justify-content: center; font-size: 3rem; color: white; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }}
+        /* product-imageに背景色や文字サイズは不要になり、imgタグにフィットするように修正 */
+        .product-image {{ width: 100%; height: 200px; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 20px 20px 0 0; }}
+        .product-image img {{ width: 100%; height: 100%; object-fit: cover; }} /* imgタグが親要素にフィットするように設定 */
+
         .product-info {{ padding: 1.5rem; color: white; }}
         .product-title {{ font-size: 1.1rem; font-weight: bold; margin-bottom: 0.5rem; }}
         .product-price {{ font-size: 1.3rem; font-weight: bold; color: #ff6b6b; margin-bottom: 0.5rem; }}
@@ -280,8 +291,8 @@ def main():
             <div class="header-content">
                 <div class="logo">🛍️ メル仮</div>
                 <div class="nav-buttons">
-                    <a href="#" class="btn btn-secondary">トップページへ</a>
-                    <a href="#" class="btn btn-primary">ログアウト</a>
+                    <a href="top.cgi" class="btn btn-secondary">トップページへ</a>
+                    <a href="logout.cgi" class="btn btn-primary">ログアウト</a>
                 </div>
             </div>
         </div>
