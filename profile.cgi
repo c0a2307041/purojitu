@@ -101,14 +101,19 @@ def main():
     connection = None
     try:
         connection = get_db_connection()
-        cursor = connection.cursor()
+        cursor = connection.cursor(dictionary=True) # 辞書カーソルを使用するように変更
 
         user_info = get_user_info(cursor, user_id)
         if not user_info:
             print_error_page("指定されたユーザーが見つかりません。")
             return
 
-        uid, username, created_at, prefecture, city = user_info
+        # 辞書カーソルを使用しているため、キーでアクセス
+        username = user_info['username']
+        created_at = user_info['created_at']
+        prefecture = user_info['prefecture']
+        city = user_info['city']
+
         items_for_sale = get_items_for_sale(cursor, user_id)
         sold_items = get_sold_items(cursor, user_id)
         reviews = get_received_reviews(cursor, user_id)
@@ -117,7 +122,11 @@ def main():
         items_for_sale_html = ""
         if items_for_sale:
             for item in items_for_sale:
-                item_id, title, desc, price, img, date = item
+                # 辞書カーソルを使用しているため、キーでアクセス
+                item_id = item['item_id']
+                title = item['title']
+                price = item['price']
+                img = item['image_path']
                 items_for_sale_html += f"""
                 <div class="product-card" onclick="location.href='item_detail.cgi?item_id={item_id}'">
                     <div class="product-image"><img src="{html.escape(str(img or ''))}" alt="{html.escape(title)}" onerror="this.parentElement.innerHTML='🛍️'"></div>
@@ -132,9 +141,14 @@ def main():
         sold_items_html = ""
         if sold_items:
             for item in sold_items:
-                item_id, title, price, img, date, buyer = item
+                # 辞書カーソルを使用しているため、キーでアクセス
+                item_id = item['item_id'] # sold_itemsの場合もitem_idを取得
+                title = item['title']
+                price = item['price']
+                img = item['image_path']
+                buyer = item['buyer_name']
                 sold_items_html += f"""
-                <div class="product-card">
+                <div class="product-card" onclick="location.href='item_detail.cgi?item_id={item_id}'"> 
                     <div class="product-image"><img src="{html.escape(str(img or ''))}" alt="{html.escape(title)}" onerror="this.parentElement.innerHTML='✅'"></div>
                     <div class="product-info">
                         <div class="product-title">{html.escape(title)}</div>
@@ -148,7 +162,10 @@ def main():
         reviews_html = ""
         if reviews:
             for review in reviews:
-                content, date, reviewer, item_title = review
+                # 辞書カーソルを使用しているため、キーでアクセス
+                content = review['content']
+                reviewer = review['reviewer_name']
+                item_title = review['item_title']
                 reviews_html += f"""
                 <div class="review-card">
                     <div class="review-header"><strong>⭐ {html.escape(reviewer)}さんからのレビュー</strong></div>
@@ -166,29 +183,60 @@ def main():
     <meta charset="UTF-8">
     <title>{html.escape(username)}さんのページ</title>
     <style>
-        body {{ font-family:-apple-system,sans-serif; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); color:white; }}
+        body {{ font-family:-apple-system,sans-serif; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); color:white; margin: 0; padding: 0; }}
         .container {{ max-width:1200px; margin:0 auto; padding:0 20px; }}
         header {{ background:rgba(255,255,255,0.1); backdrop-filter:blur(10px); padding:1rem 0; position:sticky; top:0; z-index:100; }}
         .header-content {{ display:flex; justify-content:space-between; align-items:center; }}
-        .logo {{ font-size:2rem; font-weight:bold; }}
+        .logo {{ font-size:2rem; font-weight:bold; color: white; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }}
+        .nav-buttons {{ display: flex; gap: 1rem; }} /* 追加 */
+        .btn {{ /* 追加 */
+            padding: 0.7rem 1.5rem;
+            border: none;
+            border-radius: 25px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }}
+        .btn-secondary {{ /* 追加 */
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }}
+        .btn:hover {{ /* 追加 */
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+        }}
         .hero {{ text-align:center; padding:3rem 0; }}
         .profile-section, .stats {{ background:rgba(255,255,255,0.1); backdrop-filter:blur(10px); border-radius:20px; padding:2rem; margin:2rem 0; }}
         .stats {{ display:flex; justify-content:space-around; }}
         .stat-item {{ text-align:center; }} .stat-number {{ font-size:2.5rem; font-weight:bold; display:block; }}
-        .section-title {{ text-align:center; font-size:2rem; margin:2rem 0; padding-top:1rem; }}
+        .section-title {{ text-align:center; font-size:2rem; margin:2rem 0; padding-top:1rem; color: white; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }}
         .products-grid {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:2rem; }}
-        .product-card {{ background:rgba(255,255,255,0.1); backdrop-filter:blur(10px); border-radius:20px; overflow:hidden; cursor:pointer; }}
-        .product-image {{ width:100%; height:200px; display:flex; align-items:center; justify-content:center; font-size:3rem; }}
-        .product-image img {{ width:100%; height:100%; object-fit:cover; }}
-        .product-info {{ padding:1.5rem; }} .product-title {{ font-weight:bold; }} .product-price {{ font-size:1.3rem; color:#ff6b6b; }}
+        .product-card {{ background:rgba(255,255,255,0.1); backdrop-filter:blur(10px); border-radius:20px; overflow:hidden; cursor:pointer; transition: all 0.3s ease; }}
+        .product-card:hover {{ transform: translateY(-5px); box-shadow: 0 10px 30px rgba(0,0,0,0.3); }} /* ホバー効果を追加 */
+        .product-image {{ width:100%; height:200px; display:flex; align-items:center; justify-content:center; font-size:3rem; overflow:hidden; }} /* overflow:hiddenを追加 */
+        .product-image img {{ width:100%; height:100%; object-fit:cover; }} /* object-fit:coverを追加 */
+        .product-info {{ padding:1.5rem; color: white; }}
+        .product-title {{ font-weight:bold; font-size:1.1rem; margin-bottom:0.5rem; }}
+        .product-price {{ font-size:1.3rem; color:#ff6b6b; font-weight: bold; }}
         .product-meta {{ font-size:0.9rem; opacity:0.8; }}
-        .review-card {{ background:rgba(0,0,0,0.2); border-radius:15px; padding:1.5rem; margin-bottom:1.5rem; }}
-        .review-header {{ font-weight:bold; }} .review-content {{ line-height:1.6; margin:1rem 0; }} .review-meta {{ opacity:0.8; text-align:right; }}
+        .review-card {{ background:rgba(0,0,0,0.2); border-radius:15px; padding:1.5rem; margin-bottom:1.5rem; color: white; }}
+        .review-header {{ font-weight:bold; font-size:1.1rem; }} .review-content {{ line-height:1.6; margin:1rem 0; }} .review-meta {{ opacity:0.8; text-align:right; font-size:0.9rem; }}
         .empty-state {{ text-align:center; opacity:0.8; padding:2rem; }}
     </style>
 </head>
 <body>
-    <header><div class="container header-content"><div class="logo">🛍️ メル仮</div></div></header>
+    <header>
+        <div class="container header-content">
+            <div class="logo">🛍️ メル仮</div>
+            <div class="nav-buttons">
+                <a href="top.cgi" class="btn btn-secondary">トップページへ戻る</a>
+            </div>
+        </div>
+    </header>
     <main class="container">
         <section class="hero"><h1>{html.escape(username)}さんのページ</h1></section>
         <section class="stats">

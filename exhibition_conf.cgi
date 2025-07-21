@@ -137,7 +137,7 @@ if os.environ.get('REQUEST_METHOD', 'POST'):
                 <h2 class="section-title">出品が完了しました！</h2>
                 <section class="section">
                     <p>ご出品ありがとうございます。</p>
-                    <a href="/purojitu" class="btn btn-primary">トップへ戻る</a>
+                    <a href="/purojitu/top.cgi" class="btn btn-primary">トップへ戻る</a>
                 </section>
             </div>
             """)

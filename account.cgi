@@ -62,6 +62,7 @@ def get_listed_items(cursor, user_id):
     """指定されたユーザーの出品履歴と販売状況を取得する"""
     query = """
         SELECT
+            i.item_id,  -- item_id を追加で取得
             i.title,
             i.price,
             i.image_path,
@@ -127,6 +128,7 @@ def generate_listed_items_html(items):
     """出品履歴のHTMLを生成する"""
     html_parts = []
     for item in items:
+        item_id = item['item_id'] # item_id を取得
         title = item['title']
         price = item['price']
         image_path = item['image_path']
@@ -142,15 +144,16 @@ def generate_listed_items_html(items):
 
         formatted_price = f"¥{price:,}"
 
+        # 商品詳細ページへのリンクを追加
         html_parts.append(f"""
-        <div class="product-card">
+        <a href="item_detail.cgi?item_id={item_id}" class="product-card">
             <div class="product-status {status_class}">{status_text}</div>
             <div class="product-image">{image_tag}</div>
             <div class="product-info">
                 <div class="product-title">{safe_title}</div>
                 <div class="product-price">{formatted_price}</div>
             </div>
-        </div>
+        </a>
         """)
     return "".join(html_parts)
 
@@ -304,8 +307,7 @@ def main():
                 <div class="logo">🛍️ メル仮</div>
                 <div class="nav-buttons">
                     <a href="top.cgi" class="btn btn-secondary">トップページへ</a>
-                    <a href="logout.cgi" class="btn btn-primary">ログアウト</a>
-                </div>
+                    <a href="exhibition.cgi" class="btn btn-primary">出品する</a> </div>
             </div>
         </div>
     </header>
