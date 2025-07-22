@@ -37,12 +37,26 @@ if row:
     # 有効期限：1時間後
     now = datetime.datetime.now()
     expires = now + datetime.timedelta(hours=1)
+    expires_str = expires.strftime('%Y-%m-%d %H:%M:%S')
 
-    # Session テーブルへ登録
-    cursor.execute(f"""
-        INSERT INTO sessions (session_id, user_id, created_at, expires_at)
-        VALUES ('{session_id}', {user_id}, NOW(), '{expires.strftime('%Y-%m-%d %H:%M:%S')}')
-    """)
+    # sessionsテーブルに既に同じuser_idのセッションがあるかチェック
+    cursor.execute(f"SELECT session_id FROM sessions WHERE user_id = {user_id}")
+    existing = cursor.fetchone()
+
+    if existing:
+        # 存在する場合は上書き
+        cursor.execute(f"""
+            UPDATE sessions
+            SET session_id = '{session_id}', created_at = NOW(), expires_at = '{expires_str}'
+            WHERE user_id = {user_id}
+        """)
+    else:
+        # なければ新規挿入
+        cursor.execute(f"""
+            INSERT INTO sessions (session_id, user_id, created_at, expires_at)
+            VALUES ('{session_id}', {user_id}, NOW(), '{expires_str}')
+        """)
+
     connection.commit()
 
     # Cookie にセッションIDとユーザーIDを保存

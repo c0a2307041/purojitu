@@ -44,6 +44,8 @@ def main():
     user_name = "ゲスト"
     item = None # 商品情報を格納する変数
     price_update_message = None # 価格更新メッセージ
+    delete_message = None # 削除メッセージ
+    comment_post_message = None # コメント投稿メッセージ
 
     try:
         connection = get_db_connection()
@@ -78,7 +80,29 @@ def main():
         # --- 商品ID取得 ---
         form = cgi.FieldStorage()
         item_id = form.getfirst("item_id", "")
-        comment_content = form.getfirst("content", "") # コメントフォームからのデータも取得
+        # comment_content = form.getfirst("content", "") # ここで取得済み
+
+        # 価格更新成功メッセージの取得 (リダイレクトされた場合)
+        if form.getfirst("price_updated") == "true":
+            price_update_message = "価格が更新されました！"
+        elif form.getfirst("price_updated") == "false": # エラーメッセージも表示できるように追加
+             price_update_message = form.getfirst("msg", "価格更新に失敗しました。")
+        
+        # 削除成功/失敗メッセージの取得 (リダイレクトされた場合)
+        if form.getfirst("deleted") == "true":
+            delete_message = "商品を取り消しました。"
+        elif form.getfirst("deleted") == "false":
+            delete_message = "商品の取り消しに失敗しました。購入されている商品は取り消せません。"
+        elif form.getfirst("delete_error") == "true": # エラーメッセージも表示できるように追加
+            delete_message = form.getfirst("msg", "出品取り消し中にエラーが発生しました。")
+
+
+        # コメント投稿成功/失敗メッセージの取得 (リダイレクトされた場合)
+        if form.getfirst("comment_posted") == "true":
+            comment_post_message = "コメントを投稿しました！"
+        elif form.getfirst("comment_posted") == "false":
+            comment_post_message = form.getfirst("msg", "コメントの投稿に失敗しました。")
+
 
         if not item_id or not item_id.isdigit():
             print("Content-Type: text/html; charset=utf-8\n")
@@ -109,11 +133,11 @@ def main():
             """)
             return
 
-        # 商品情報取得と出品者情報取得 (コメント投稿、価格変更時に必要)
-        select_item_query_for_seller = """
-            SELECT user_id as seller_id FROM items WHERE item_id = %s
+        # 商品情報取得（出品者IDの確認のため）
+        select_item_seller_query = """
+            SELECT user_id AS seller_id FROM items WHERE item_id = %s
         """
-        cursor.execute(select_item_query_for_seller, (item_id,))
+        cursor.execute(select_item_seller_query, (item_id,))
         item_seller_info = cursor.fetchone()
         seller_id = item_seller_info['seller_id'] if item_seller_info else None
 
@@ -123,33 +147,84 @@ def main():
             try:
                 new_price = int(new_price_str)
                 if new_price <= 0:
-                    price_update_message = "価格は1円以上に設定してください。"
+                    # アラートではなく、メッセージをURLパラメータに含めてリダイレクト
+                    print("Status: 302 Found")
+                    print(f"Location: item_detail.cgi?item_id={item_id}&price_updated=false&msg={html.escape('価格は1円以上に設定してください。')}\n")
+                    return
                 else:
                     update_price_query = "UPDATE items SET price = %s WHERE item_id = %s AND user_id = %s"
                     cursor.execute(update_price_query, (new_price, item_id, logged_in_user_id))
                     connection.commit()
-                    # 更新成功後、リダイレクトしてGETリクエストにする（二重送信防止＆メッセージ表示のため）
                     print("Status: 302 Found")
                     print(f"Location: item_detail.cgi?item_id={item_id}&price_updated=true\n")
                     return
             except ValueError:
-                price_update_message = "価格は半角数字で入力してください。"
+                print("Status: 302 Found")
+                print(f"Location: item_detail.cgi?item_id={item_id}&price_updated=false&msg={html.escape('価格は半角数字で入力してください。')}\n")
+                return
             except Exception as e:
-                price_update_message = f"価格更新中にエラーが発生しました: {html.escape(str(e))}"
+                print("Status: 302 Found")
+                print(f"Location: item_detail.cgi?item_id={item_id}&price_updated=false&msg={html.escape(f'価格更新中にエラーが発生しました: {str(e)}')}\n")
+                return
 
-        # コメント投稿処理
-        if comment_content and comment_content.strip() != "" and logged_in_user_id:
-            insert_comment_query = """
-                INSERT INTO reviews (item_id, reviewer_id, content, created_at)
-                VALUES (%s, %s, %s, %s)
-            """
-            cursor.execute(insert_comment_query, (item_id, logged_in_user_id, comment_content.strip(), datetime.datetime.now()))
-            connection.commit()
-            
-            # コメント投稿後、ページをリロードしてGETリクエストにする（二重送信防止）
-            print("Status: 302 Found")
-            print(f"Location: item_detail.cgi?item_id={item_id}\n")
-            return
+        # 出品取り消し処理
+        if form.getfirst("action") == "delete_item" and logged_in_user_id == seller_id:
+            # まず、商品が購入済みでないことを確認
+            check_purchase_query = "SELECT purchase_id FROM purchases WHERE item_id = %s"
+            cursor.execute(check_purchase_query, (item_id,))
+            purchase_record = cursor.fetchone()
+
+            if purchase_record:
+                print("Status: 302 Found")
+                print(f"Location: item_detail.cgi?item_id={item_id}&deleted=false\n")
+                return
+            else:
+                try:
+                    # コメントがある場合、先にコメントを削除する（外部キー制約のため）
+                    delete_comments_query = "DELETE FROM reviews WHERE item_id = %s"
+                    cursor.execute(delete_comments_query, (item_id,))
+                    
+                    # 商品を削除
+                    delete_item_query = "DELETE FROM items WHERE item_id = %s AND user_id = %s"
+                    cursor.execute(delete_item_query, (item_id, logged_in_user_id))
+                    connection.commit()
+
+                    if cursor.rowcount > 0: # 1件以上削除されたら成功
+                        print("Status: 302 Found")
+                        print("Location: top.cgi?deleted_success=true\n") # 削除成功をトップページに通知
+                        return
+                    else:
+                        print("Status: 302 Found")
+                        print(f"Location: item_detail.cgi?item_id={item_id}&deleted=false\n")
+                        return # 商品詳細に戻ってエラーメッセージを表示
+                except mysql.connector.Error as err:
+                    print("Status: 302 Found")
+                    print(f"Location: item_detail.cgi?item_id={item_id}&delete_error=true&msg={html.escape(f'出品取り消し中にデータベースエラーが発生しました: {str(err)}')}\n")
+                    return
+
+
+        # --- コメント投稿処理を追加 ---
+        if os.environ['REQUEST_METHOD'] == 'POST' and "content" in form and logged_in_user_id:
+            comment_content = form.getfirst("content", "").strip()
+            if comment_content:
+                try:
+                    insert_comment_query = """
+                        INSERT INTO reviews (item_id, reviewer_id, content, created_at)
+                        VALUES (%s, %s, %s, NOW())
+                    """
+                    cursor.execute(insert_comment_query, (item_id, logged_in_user_id, comment_content))
+                    connection.commit()
+                    print("Status: 302 Found")
+                    print(f"Location: item_detail.cgi?item_id={item_id}&comment_posted=true\n")
+                    return
+                except mysql.connector.Error as err:
+                    print("Status: 302 Found")
+                    print(f"Location: item_detail.cgi?item_id={item_id}&comment_posted=false&msg={html.escape(f'コメントの投稿中にデータベースエラーが発生しました: {str(err)}')}\n")
+                    return
+            else:
+                print("Status: 302 Found")
+                print(f"Location: item_detail.cgi?item_id={item_id}&comment_posted=false&msg={html.escape('コメント内容が空です。')}\n")
+                return
 
 
         # 商品情報取得と出品者情報取得 (再取得、価格更新後に最新情報を得るため)
@@ -218,7 +293,7 @@ def main():
                             <span class="commenter-name">{commenter_name}</span>
                             <span class="comment-date item-meta">{c['created_at'].strftime('%Y/%m/%d %H:%M')}</span>
                         </div>
-                        <p class="comment-content">{html.escape(c['content'])}</p>
+                        <p class="comment-content">{c['content']}</p>
                     </div>
                 </li>
                 """)
@@ -228,7 +303,7 @@ def main():
         # 画像パスの処理
         display_image_path = html.escape(item['image_path']) if item['image_path'] else "/purojitu/images/noimage.png"
 
-        # 購入ボタン/価格変更フォームの表示制御
+        # 購入ボタン/価格変更フォーム/出品取り消しボタンの表示制御
         action_area_html = ""
         if logged_in_user_id != item['seller_id']:
             action_area_html = f"""
@@ -240,7 +315,7 @@ def main():
                 </div>
             """
         else:
-            # 出品者本人の場合、価格変更フォームを表示
+            # 出品者本人の場合、価格変更フォームと出品取り消しボタンを表示
             action_area_html = f"""
                 <div class="seller-actions-container">
                     <p class="seller-view-message">あなたが出品した商品です。</p>
@@ -252,16 +327,23 @@ def main():
                             <input type="number" name="new_price" value="{item['price']}" min="1" required class="price-input">
                             <button type="submit" class="btn btn-primary btn-update-price">価格を更新</button>
                         </form>
-                        {"<p class='error-message'>" + html.escape(price_update_message) + "</p>" if price_update_message else ""}
+                        {"<p class='success-message'>" + html.escape(price_update_message) + "</p>" if form.getfirst("price_updated") == "true" else ""}
+                        {"<p class='error-message'>" + html.escape(price_update_message) + "</p>" if form.getfirst("price_updated") == "false" and price_update_message else ""}
+                    </div>
+
+                    <div class="delete-item-wrapper">
+                        <h3>出品を取り消す</h3>
+                        <form method="post" action="item_detail.cgi" onsubmit="return confirm('本当にこの出品を取り消しますか？ この操作は取り消せません。');">
+                            <input type="hidden" name="item_id" value="{item_id}">
+                            <input type="hidden" name="action" value="delete_item">
+                            <button type="submit" class="btn btn-danger btn-delete-item">出品を取り消す</button>
+                        </form>
+                        {"<p class='success-message'>" + html.escape(delete_message) + "</p>" if form.getfirst("deleted") == "true" else ""}
+                        {"<p class='error-message'>" + html.escape(delete_message) + "</p>" if (form.getfirst("deleted") == "false" or form.getfirst("delete_error") == "true") and delete_message else ""}
                     </div>
                 </div>
             """
-        
-        # 価格更新成功時のJavaScriptアラート
-        js_alert_script = ""
-        if form.getfirst("price_updated") == "true":
-            js_alert_script = "<script>alert('価格が更新されました！');</script>"
-
+            
         # CGIヘッダーを出力
         print("Content-Type: text/html; charset=utf-8\n")
         
@@ -291,6 +373,10 @@ def main():
         .btn-primary {{ background: linear-gradient(45deg, #ff6b6b, #ff8e8e); color: white; box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4); }}
         .btn-secondary {{ background: rgba(255, 255, 255, 0.2); color: white; border: 1px solid rgba(255, 255, 255, 0.3); }}
         .btn:hover {{ transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.2); }}
+        /* Danger button for delete */
+        .btn-danger {{ background: linear-gradient(45deg, #dc3545, #fd7e14); color: white; box-shadow: 0 4px 15px rgba(220, 53, 69, 0.4); }}
+        .btn-danger:hover {{ transform: translateY(-2px); box-shadow: 0 6px 20px rgba(220, 53, 69, 0.5); }}
+
 
         /* Sections and Titles (共通化) */
         .section {{ background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border-radius: 20px; padding: 2rem; margin-bottom: 2rem; border: 1px solid rgba(255, 255, 255, 0.2); }}
@@ -404,22 +490,22 @@ def main():
             text-align: center;
             margin-bottom: 3rem;
         }}
-        .price-edit-form-wrapper {{
+        .price-edit-form-wrapper, .delete-item-wrapper {{
             background: rgba(255, 255, 255, 0.08);
             padding: 2rem;
             border-radius: 15px;
             border: 1px solid rgba(255, 255, 255, 0.1);
             max-width: 400px;
-            margin: 0 auto;
+            margin: 2rem auto; /* 上下マージンを追加 */
         }}
-        .price-edit-form-wrapper h3 {{
+        .price-edit-form-wrapper h3, .delete-item-wrapper h3 {{
             font-size: 1.5rem;
             margin-bottom: 1.5rem;
             color: white;
             text-align: center;
             text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
         }}
-        .price-edit-form-wrapper form {{
+        .price-edit-form-wrapper form, .delete-item-wrapper form {{
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -442,25 +528,28 @@ def main():
             -webkit-appearance: none; /* Chrome, Safari の数値入力欄の矢印を非表示に */
             margin: 0;
         }}
-        .btn-update-price {{
+        .btn-update-price, .btn-delete-item {{
             width: 80%;
             padding: 0.8rem 2rem;
             font-size: 1.1rem;
             border-radius: 25px;
             cursor: pointer;
             border: none;
-            background: linear-gradient(45deg, #ff6b6b, #ff8e8e);
-            color: white;
             font-weight: 600;
             transition: all 0.3s ease;
             box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
         }}
-        .btn-update-price:hover {{
+        .btn-update-price:hover, .btn-delete-item:hover {{
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(255, 107, 107, 0.5);
         }}
         .error-message {{
             color: #ffcccc;
+            margin-top: 1rem;
+            font-weight: bold;
+        }}
+        .success-message {{
+            color: #ccffcc; /* 薄い緑色 */
             margin-top: 1rem;
             font-weight: bold;
         }}
@@ -608,8 +697,8 @@ def main():
             .comment-card {{ flex-direction: column; align-items: flex-start; gap: 0.5rem; }}
             .comment-header {{ flex-direction: column; align-items: flex-start; }}
             .comment-date {{ margin-top: 0.3rem; }}
-            .price-edit-form-wrapper {{ max-width: 100%; padding: 1.5rem; }}
-            .price-input, .btn-update-price {{ width: 100%; }}
+            .price-edit-form-wrapper, .delete-item-wrapper {{ max-width: 100%; padding: 1.5rem; }}
+            .price-input, .btn-update-price, .btn-delete-item {{ width: 100%; }}
         }}
     </style>
 </head>
@@ -651,6 +740,8 @@ def main():
                             <textarea name="content" rows="4" placeholder="コメントを記入してください" required></textarea><br>
                             <input type="submit" value="コメントを投稿">
                         </form>
+                        {"<p class='success-message'>" + html.escape(comment_post_message) + "</p>" if form.getfirst("comment_posted") == "true" else ""}
+                        {"<p class='error-message'>" + html.escape(comment_post_message) + "</p>" if form.getfirst("comment_posted") == "false" and comment_post_message else ""}
                     </div>
                     <ul class="comment-list"> 
                         { "".join(comments_html) }
@@ -665,7 +756,6 @@ def main():
             <p>&copy; 2025 フリマ. All rights reserved. | 利用規約 | プライバシーポリシー</p>
         </div>
     </footer>
-    {js_alert_script}
 </body>
 </html>
         """)

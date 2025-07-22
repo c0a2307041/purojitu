@@ -307,7 +307,8 @@ def main():
                 <div class="logo">🛍️ メル仮</div>
                 <div class="nav-buttons">
                     <a href="top.cgi" class="btn btn-secondary">トップページへ</a>
-                    <a href="exhibition.cgi" class="btn btn-primary">出品する</a> </div>
+                    <a href="account_detail.cgi" class="btn btn-secondary">アカウント情報</a> <a href="exhibition.cgi" class="btn btn-primary">出品する</a> 
+                </div>
             </div>
         </div>
     </header>

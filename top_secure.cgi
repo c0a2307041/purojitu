@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# print("Content-Type: text/html; charset=utf-8\n")
 
 import cgi
-import cgitb
+import cgitb # エラー表示のために追加
 import mysql.connector
 import html
 import os
 from http import cookies
-from datetime import datetime
+from datetime import datetime # セッションの期限切れチェックのため追加
 
+# エラー表示を有効にする
 cgitb.enable()
 
+# DB接続情報
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'user1',
@@ -51,7 +54,10 @@ def main():
             session_id = sid_cookie["session_id"].value
             cookie_user_id = sid_cookie["user_id"].value
 
+            # セッションテーブルで正当性を検証
             valid_user_id = validate_session(cursor, session_id)
+
+            # セッションが無効 or クッキーのuser_idとセッションテーブルのuser_idが不一致
             if not valid_user_id or str(valid_user_id) != cookie_user_id:
                 print("Status: 302 Found")
                 print("Location: login.html")
@@ -61,6 +67,7 @@ def main():
             user_id = valid_user_id
             user_name = get_user_info(cursor, user_id)
         else:
+            # クッキーに必要な情報がない場合もログインページへ
             print("Status: 302 Found")
             print("Location: login.html")
             print()
@@ -71,27 +78,32 @@ def main():
         form = cgi.FieldStorage()
         search_query = form.getfirst("search", "").strip()
 
+        # SQLクエリの基本形（購入されていない商品のみ）
         base_sql = """
             SELECT i.item_id, i.title, i.price, i.image_path
             FROM items AS i
             LEFT JOIN purchases AS p ON i.item_id = p.item_id
-            WHERE p.purchase_id IS NULL
+            WHERE p.purchase_id IS NULL -- ここが変更点: 購入されていない商品のみ
         """
+        params = []
 
         if search_query:
-            sql = f"{base_sql} AND i.title LIKE '%{search_query}%'"
+            sql = base_sql + " AND i.title LIKE %s"
+            params.append(f"%{search_query}%")
             if user_id:
-                sql += f" AND i.user_id != {user_id}"
+                sql += " AND i.user_id != %s"
+                params.append(user_id)
             sql += " ORDER BY i.created_at DESC"
-            cursor.execute(sql)
+            cursor.execute(sql, tuple(params))
             items = cursor.fetchall()
             section_title = f'検索結果: 「{html.escape(search_query)}」'
         else:
             sql = base_sql
             if user_id:
-                sql += f" AND i.user_id != {user_id}"
+                sql += " AND i.user_id != %s"
+                params.append(user_id)
             sql += " ORDER BY i.created_at DESC"
-            cursor.execute(sql)
+            cursor.execute(sql, tuple(params))
             items = cursor.fetchall()
             section_title = "新着商品"
 
@@ -189,9 +201,9 @@ def main():
     <header>
         <div class="container">
             <div class="header-content">
-                <div class="logo"><a href="top.cgi" style="text-decoration: none; color: white;">🛍️ メル仮</a></div>
+                <div class="logo"><a href="top_secure.cgi" style="text-decoration: none; color: white;">🛍️ メル仮</a></div>
 
-                <form method="get" class="search-form" action="top.cgi" style="flex:1; max-width:400px;">
+                <form method="get" class="search-form" action="top_secure.cgi" style="flex:1; max-width:400px;">
                     <input type="text" name="search" placeholder="商品名で検索" value="{html.escape(search_query)}" autocomplete="off" />
                     <button type="submit">検索</button>
                 </form>
@@ -225,7 +237,6 @@ def main():
 </body>
 </html>
         """)
-
     except mysql.connector.Error as err:
         print("Content-Type: text/html; charset=utf-8\n")
         print("<h1>データベースエラー</h1>")
@@ -237,4 +248,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
