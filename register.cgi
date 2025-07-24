@@ -10,7 +10,7 @@ username = form.getfirst("username", "")
 email = form.getfirst("email", "")
 password = form.getfirst("password", "")
 
-# 住所情報（フォームで分割して受け取る前提）
+# 住所情報
 postal_code = form.getfirst("postal_code", "")
 prefecture = form.getfirst("prefecture", "")
 city = form.getfirst("city", "")
@@ -34,9 +34,9 @@ try:
         "INSERT INTO addresses (postal_code, prefecture, city, street, building) VALUES (%s, %s, %s, %s, %s)",
         (postal_code, prefecture, city, street, building)
     )
-    address_id = cursor.lastrowid  # 住所のIDを取得
+    address_id = cursor.lastrowid
 
-    # ユーザーを挿入（users.address_id がある前提）
+    # ユーザーを挿入
     cursor.execute(
         "INSERT INTO users (username, email, password, address_id) VALUES (%s, %s, %s, %s)",
         (username, email, password, address_id)
@@ -44,12 +44,16 @@ try:
 
     connection.commit()
 
+    # 自動でログインページにリダイレクト
     print("""
     <html>
-    <head><meta charset="utf-8"></head>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="refresh" content="0; URL=login.html">
+        <title>登録完了</title>
+    </head>
     <body>
-    <h1>登録完了</h1>
-    <p><a href="login.html">ログインページへ</a></p>
+        <p>登録が完了しました。ログインページに移動します...</p>
     </body>
     </html>
     """)

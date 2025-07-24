@@ -36,7 +36,7 @@ def get_user_info(cursor, user_id):
     
 def get_todo_counts(cursor, user_id):
     """やることリストの件数を取得する"""
-    counts = {'shipping': 0, 'review': 0}
+    counts = {'shipping': 0, 'my_review': 0, 'buyer_review': 0} # 'buyer_review' を追加
     
     # 発送待ちの件数を取得
     shipping_query = """
@@ -47,14 +47,27 @@ def get_todo_counts(cursor, user_id):
     cursor.execute(shipping_query, (user_id,))
     counts['shipping'] = cursor.fetchone()['shipping_count']
 
-    # 評価待ちの件数を取得
-    review_query = """
-        SELECT COUNT(*) AS review_count FROM purchases p
+    # 自分が購入者で、評価待ちの件数を取得 (my_review)
+    my_review_query = """
+        SELECT COUNT(*) AS my_review_count FROM purchases p
         LEFT JOIN user_reviews r ON p.item_id = r.item_id AND r.reviewer_id = p.buyer_id
         WHERE p.buyer_id = %s AND p.status = 'shipped' AND r.review_id IS NULL
     """
-    cursor.execute(review_query, (user_id,))
-    counts['review'] = cursor.fetchone()['review_count']
+    cursor.execute(my_review_query, (user_id,))
+    counts['my_review'] = cursor.fetchone()['my_review_count'] # キーを 'my_review' に変更
+
+    # 自分が出品者で、購入者の評価待ちの件数を取得 (buyer_review)
+    buyer_review_query = """
+        SELECT COUNT(*) AS buyer_review_count
+        FROM purchases p
+        JOIN items i ON p.item_id = i.item_id
+        LEFT JOIN user_reviews r ON p.item_id = r.item_id AND r.reviewer_id = i.user_id
+        WHERE i.user_id = %s
+          AND p.status = 'completed'
+          AND r.review_id IS NULL;
+    """
+    cursor.execute(buyer_review_query, (user_id,))
+    counts['buyer_review'] = cursor.fetchone()['buyer_review_count'] # 新しいキーを追加
     
     return counts
 
@@ -110,12 +123,21 @@ def generate_todo_list_html(counts):
         </li>
         """)
 
-    if counts.get('review', 0) > 0:
+    if counts.get('my_review', 0) > 0: # キーを 'my_review' に変更
         html_parts.append(f"""
         <li class="todo-item">
             <div class="todo-icon">⭐</div>
             <div class="todo-text">評価待ちの取引があります</div>
-            <span class="todo-badge">{counts['review']}</span>
+            <span class="todo-badge">{counts['my_review']}</span>
+        </li>
+        """)
+        
+    # 購入者の評価待ちを追加
+    if counts.get('buyer_review', 0) > 0:
+        html_parts.append(f"""
+        <li class="todo-item">
+            <div class="todo-icon">📝</div> <div class="todo-text">購入者の評価待ちがあります</div>
+            <span class="todo-badge">{counts['buyer_review']}</span>
         </li>
         """)
 

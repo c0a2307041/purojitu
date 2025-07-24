@@ -60,8 +60,8 @@ if row:
     connection.commit()
 
     # Cookie にセッションIDとユーザーIDを保存
-    print(f"Set-Cookie: session_id={session_id}; Path=/; HttpOnly")
-    print(f"Set-Cookie: user_id={user_id}; Path=/; HttpOnly")
+    print(f"Set-Cookie: session_id={session_id}; Path=/")
+    print(f"Set-Cookie: user_id={user_id}; Path=/")
     print()
     print(f"""
     <html><head>
